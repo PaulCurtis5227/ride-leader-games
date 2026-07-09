@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html class="passive-overlay-scrollbars" tabindex="0" data-settings-key="ride-leader-games-overlay-v1">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+    <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline';"/>
+    <title>Ride Leader Games — Leaderboard</title>
+    <script src="/pages/src/preloads.js"></script>
+    <link rel="stylesheet" href="/pages/css/common.css"/>
+    <link rel="stylesheet" href="overlay.css"/>
+    <script type="module">
+        import {main} from './overlay.mjs';
+        main();
+    </script>
+</head>
+<body>
+<div class="rlg-overlay">
+    <header>
+        <span class="title">🏁 Leaderboard</span>
+        <span class="clock" id="clock">--:--</span>
+    </header>
+    <ol id="board" class="board"></ol>
+    <div class="empty" id="empty">Waiting for the game to start…</div>
+</div>
+</body>
+</html>

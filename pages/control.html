@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html class="passive-overlay-scrollbars" tabindex="0" data-settings-key="ride-leader-games-settings-v1">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+    <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline';"/>
+    <title>Ride Leader Games — Control</title>
+    <script src="/pages/src/preloads.js"></script>
+    <link rel="stylesheet" href="/pages/css/common.css"/>
+    <link rel="stylesheet" href="control.css"/>
+    <script type="module">
+        import {main} from './control.mjs';
+        main();
+    </script>
+</head>
+<body>
+<div id="rlg" class="rlg-control">
+
+    <header class="rlg-header">
+        <div class="title">🏁 Ride Leader Games</div>
+        <div class="conn" id="conn"><span class="dot"></span><span class="txt">connecting…</span></div>
+    </header>
+
+    <section class="rlg-status">
+        <div class="clock">
+            <div class="state" id="gameState">Idle</div>
+            <div class="time" id="clock">--:--</div>
+        </div>
+        <div class="reference">
+            <label>Ride leader (scoring reference)</label>
+            <div class="ref-line">
+                <select id="leaderPicker"><option value="">(watched rider)</option></select>
+                <span class="ref-flag" id="leaderFlag"></span>
+            </div>
+            <div class="riders-note" id="ridersNote"></div>
+        </div>
+        <div class="controls">
+            <button class="rlg-btn primary" id="btnStart">Start</button>
+            <button class="rlg-btn" id="btnStop" disabled>Stop</button>
+            <button class="rlg-btn" id="btnReset">Reset</button>
+        </div>
+    </section>
+
+    <section class="rlg-board">
+        <h2>Leaderboard <small id="boardNote"></small></h2>
+        <ol id="leaderboard" class="leaderboard"></ol>
+    </section>
+
+    <section class="rlg-outbox">
+        <h2>Messages
+            <span class="mode-badge" id="modeBadge">silent</span>
+            <span class="queue-depth" id="queueDepth"></span>
+        </h2>
+        <div id="reviewQueue" class="review-queue"></div>
+        <ul id="outbox" class="outbox"></ul>
+    </section>
+
+    <details class="rlg-config">
+        <summary>Configuration</summary>
+        <form id="configForm">
+            <label>Game duration (minutes)
+                <input type="number" name="duration" min="1" max="240" step="1" value="20"/>
+            </label>
+            <label>Send mode
+                <select name="sendMode">
+                    <option value="silent">Silent (log only)</option>
+                    <option value="review">Review (edit &amp; send)</option>
+                    <option value="auto">Auto (send immediately)</option>
+                </select>
+            </label>
+            <label>Chat prefix
+                <input type="text" name="chatPrefix" maxlength="8" value="🏁"/>
+            </label>
+            <label>Max message length (chars)
+                <input type="number" name="maxMessageLength" min="16" max="240" step="1" value="90"/>
+            </label>
+            <label>Delay between messages (seconds)
+                <input type="number" name="messageDelay" min="0" max="60" step="0.5" value="4"/>
+            </label>
+            <label>Min samples to qualify
+                <input type="number" name="minSamples" min="1" max="1000" step="1" value="5"/>
+            </label>
+            <label>Intersection anomaly threshold (m)
+                <input type="number" name="anomalyThresholdM" min="10" max="2000" step="10" value="150"/>
+            </label>
+            <label class="checkbox">
+                <input type="checkbox" name="announceStart" checked/> Announce game start
+            </label>
+            <label class="checkbox">
+                <input type="checkbox" name="announcePeriodic"/> Announce periodic standings
+            </label>
+            <label>Standings interval (seconds)
+                <input type="number" name="announceIntervalSec" min="10" max="1800" step="5" value="120"/>
+            </label>
+            <label class="checkbox">
+                <input type="checkbox" name="announceWinner" checked/> Announce winner
+            </label>
+            <label class="checkbox">
+                <input type="checkbox" name="showDiagnostics" checked/> Show diagnostics
+            </label>
+        </form>
+    </details>
+
+    <details class="rlg-replay">
+        <summary>Replay (dev) <span class="replay-badge" id="replayBadge" data-mode="live">LIVE</span></summary>
+        <div class="replay-body">
+            <label class="file">Load recording (.ndjson from S4Z Stream Recorder)
+                <input type="file" id="replayFile" accept=".ndjson,.jsonl,.json,text/plain,application/x-ndjson"/>
+            </label>
+            <div class="replay-controls">
+                <button class="rlg-btn small" id="btnReplayPlay" disabled>▶ Play</button>
+                <label class="speed">Speed
+                    <select id="replaySpeed">
+                        <option value="1">1×</option>
+                        <option value="2">2×</option>
+                        <option value="4" selected>4×</option>
+                        <option value="10">10×</option>
+                        <option value="1000">max</option>
+                    </select>
+                </label>
+                <button class="rlg-btn small" id="btnGoLive" disabled>Go Live</button>
+            </div>
+            <div class="replay-info" id="replayInfo"></div>
+        </div>
+    </details>
+
+    <details class="rlg-diag" id="diagSection" open>
+        <summary>Diagnostics <small id="diagNote"></small></summary>
+        <div class="diag-tools">
+            <button class="rlg-btn small" id="btnExportJSON">Export JSON</button>
+            <button class="rlg-btn small" id="btnExportCSV">Export CSV</button>
+            <button class="rlg-btn small" id="btnClearDiag">Clear</button>
+        </div>
+        <ul id="diagLog" class="diag-log"></ul>
+    </details>
+
+</div>
+</body>
+</html>
