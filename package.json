@@ -1,0 +1,11 @@
+{
+    "name": "ride-leader-games",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Dev/release tooling for the Ride Leader Games Sauce4Zwift mod (the mod itself is plain HTML/JS under pages/).",
+    "scripts": {
+        "dev-link": "node scripts/dev-link.mjs",
+        "build": "node scripts/build.mjs",
+        "install-release": "node scripts/install-release.mjs"
+    }
+}

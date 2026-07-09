@@ -5,3 +5,4 @@ Thumbs.db
 # exported diagnostic dumps
 rlg-diagnostics-*.json
 rlg-diagnostics-*.csv
+dist/
