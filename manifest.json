@@ -8,7 +8,7 @@
     "web_root": "pages",
     "windows": [
         {
-            "file": "control.html",
+            "file": "pages/control.html",
             "id": "rlg-control",
             "name": "Ride Leader Games — Control",
             "description": "Leader control panel: config, live leaderboard, game controls, chat review queue, diagnostics",
@@ -16,7 +16,7 @@
             "default_bounds": {"width": 560, "height": 820, "x": 0.08, "y": 0.08}
         },
         {
-            "file": "overlay.html",
+            "file": "pages/overlay.html",
             "id": "rlg-overlay",
             "name": "Ride Leader Games — Leaderboard Overlay",
             "description": "Compact read-only leaderboard overlay for players and streamers",
