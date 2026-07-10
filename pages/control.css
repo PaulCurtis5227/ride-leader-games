@@ -15,20 +15,26 @@ html, body {
 body {
     font-family: system-ui, sans-serif;
     font-size: 13px;
-    padding: 0.5rem;
-    box-sizing: border-box;
-    /* Scroll the whole window when expanded sections (Config/Diagnostics) exceed its height. */
-    overflow-y: auto;
-    overflow-x: hidden;
     /* Self-sufficient dark styling so the window is readable even if the theme CSS is absent. */
     background: #1b1e24;
     color: #e8eaed;
+    /* NOTE: Sauce's common.scss sets `html body {overflow:hidden}` — higher specificity than a
+     * bare `body` rule — so the scroll can't live on body. It lives on .rlg-control below. */
 }
 
 .rlg-control {
     display: flex;
     flex-direction: column;
     gap: var(--rlg-gap);
+    /* Fill the fixed-height, overflow-hidden body and scroll internally when the expanded
+     * Config/Diagnostics sections exceed the window height. min-height:0 lets this flex child
+     * shrink below its content height so overflow-y actually engages. */
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0.5rem;
+    box-sizing: border-box;
 }
 
 h2 {
