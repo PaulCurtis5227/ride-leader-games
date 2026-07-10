@@ -14,14 +14,12 @@ const streams = getSauceStreams(Common);
 let replayMode = false;
 
 /*
- * Game-timeline clock. Live: wall clock. Replay: the recording's own position (0-based ms),
- * so the game timeline tracks the recorded ride instead of real time.
+ * Game-timeline clock. Delegates to the stream service so the game timeline is correct in both
+ * live and replay. In replay the service rebases the recording to "now" by default (see
+ * s4z-streams.mjs CONTRACT level 2), so this is just epoch ms either way — no special-casing.
  */
 function clockNow() {
-    if (replayMode) {
-        return streams.getReplayState().positionMs || 0;
-    }
-    return Date.now();
+    return streams.now();
 }
 
 const settings = Common.settingsStore;
@@ -46,6 +44,9 @@ let els;
 let lastState = STATES.IDLE;
 let lastPeriodicAnnounce = 0;
 let lastNearbyCount = 0;
+let wsConnected = false;   // connected to Sauce's web server (the data pipe)
+let lastDataTs = 0;        // wall-clock ms of the last nearby tick (ground truth for "receiving data")
+let gameLink = false;      // Zwift game connection (command channel) — only needed to SEND chat
 
 // ---- send pipeline (chunk -> throttled queue -> send-mode gate) ----
 const sendQueue = [];
@@ -315,6 +316,7 @@ function syncButtons() {
 
 function onNearby(entries) {
     lastNearbyCount = entries.length;
+    lastDataTs = Date.now();
     updateLeaderPicker(entries);
     updateReference(entries);
     readConfigIntoEngine();
@@ -379,10 +381,38 @@ function nameOf(e) {
 
 // ---------------------------------------------------------------- connection status
 
-function updateConnStatus(status) {
-    const connected = !!(status && status.connected);
+/*
+ * The header reflects the DATA connection to Sauce (are we receiving nearby?), which is what
+ * the game needs. It is deliberately independent of the Zwift "game connection" command
+ * channel — that only matters for SENDING chat, and is surfaced separately.
+ */
+function renderConn() {
+    let connected, txt;
+    if (replayMode) {
+        connected = true;
+        txt = 'replay mode';
+    } else if (lastDataTs && Date.now() - lastDataTs < 5000) {
+        connected = true;
+        txt = 'receiving data';
+    } else if (wsConnected) {
+        connected = true;
+        txt = 'connected · waiting for data';
+    } else {
+        connected = false;
+        txt = 'not connected to Sauce';
+    }
     els.conn.classList.toggle('connected', connected);
-    els.conn.querySelector('.txt').textContent = connected ? (status.state || 'connected') : 'game not connected';
+    els.conn.querySelector('.txt').textContent = txt;
+
+    // Chat sending needs the game connection (independent of the data feed above).
+    if (els.sendReady) {
+        const silent = get('sendMode') === SEND_MODES.SILENT;
+        els.sendReady.textContent = gameLink ? 'chat link ✓'
+            : silent ? 'chat off (Silent)'
+            : 'chat link off — enable Game Connection to send';
+        els.sendReady.classList.toggle('warn', !gameLink && !silent);
+        els.sendReady.classList.toggle('ok', gameLink);
+    }
 }
 
 
@@ -410,6 +440,7 @@ function stamp() {
 export async function main() {
     els = {
         conn: document.querySelector('#conn'),
+        sendReady: document.querySelector('#sendReady'),
         clock: document.querySelector('#clock'),
         gameState: document.querySelector('#gameState'),
         leaderPicker: document.querySelector('#leaderPicker'),
@@ -500,18 +531,23 @@ export async function main() {
     // Live data through the stream service (live now, native later; replay for dev).
     streams.subscribe('nearby', onNearby);
     wireReplayControls();
-    document.addEventListener('sauce-ws-status', async ({detail}) => {
-        if (detail === 'connected') {
-            try {
-                updateConnStatus(await Common.rpc.getGameConnectionStatus());
-            } catch (e) { updateConnStatus({connected: false}); }
-        } else {
-            updateConnStatus({connected: false});
-        }
+
+    // Header = data/Sauce connection (WS status + data recency, updated each tick).
+    document.addEventListener('sauce-ws-status', ({detail}) => {
+        wsConnected = detail === 'connected';
+        renderConn();
     });
+    // Chat sending needs the separate Zwift game connection — track it independently.
+    Common.subscribe('status', s => { gameLink = !!(s && s.connected); renderConn(); },
+        {source: 'gameConnection', persistent: true});
     try {
-        updateConnStatus(await Common.rpc.getGameConnectionStatus());
-    } catch (e) { updateConnStatus({connected: false}); }
+        const gc = await Common.rpc.getGameConnectionStatus();
+        wsConnected = true;                    // the RPC resolving means Sauce is reachable
+        gameLink = !!(gc && gc.connected);
+    } catch (e) {
+        wsConnected = false;
+    }
+    renderConn();
 
     // 1s ticker drives the clock, time-up finish, and periodic standings even if nearby is quiet.
     setInterval(gameClock, 1000);
@@ -611,5 +647,6 @@ function gameClock() {
         syncButtons();
     }
     renderClock();
+    renderConn();   // refresh "receiving data" vs "waiting" as data recency changes
     publishSnapshot();
 }

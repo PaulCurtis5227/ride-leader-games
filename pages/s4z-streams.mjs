@@ -30,7 +30,9 @@
  *     const ndjson = rec.toNDJSON();
  *
  * ---------------------------------------------------------------------------
- * CONTRACT (level 1) — append-only; never change/remove once shipped:
+ * CONTRACT — append-only; never change/remove once shipped:
+ *
+ * level 1:
  *   service.level                       -> number   (capability level)
  *   service.source                      -> 'native' | 'polyfill'
  *   service.mode                        -> 'live' | 'replay'
@@ -43,13 +45,22 @@
  *   service.record({events, raw=true})  -> Recorder
  *   Recorder: .stop() .toNDJSON() .toRecords() .stats {count,bytes,byEvent,startedAt,durationMs} .recording
  *
+ * level 2 (added):
+ *   service.now() -> epoch ms clock. Use this instead of Date.now() for anything on the
+ *                    replayed timeline. Live: real Date.now(). Replay (default): the recording
+ *                    is *rebased to now* — the current replay position mapped onto the wall clock
+ *                    at load, so recorded events read as happening ~now. Opt into the original
+ *                    recorded wall-clock with loadReplay(..., {absoluteTime: true}).
+ *   service.loadReplay(..., {absoluteTime=false})  — preserve original recorded timestamps in now().
+ *   service.getReplayState() also returns {absoluteTime}.
+ *
  * FILE FORMAT (NDJSON): first line is a meta header, then one event per line:
  *   {"__s4zstream":1,"createdAt":<ms>,"events":[...],"raw":true,"note":"..."}
  *   {"t":<epochMs>,"e":"nearby","d":<payload>}
  * ---------------------------------------------------------------------------
  */
 
-export const CONTRACT_LEVEL = 1;
+export const CONTRACT_LEVEL = 2;
 export const STREAM_FILE_VERSION = 1;
 const GLOBAL_KEY = '__s4zStreams';
 
@@ -157,6 +168,16 @@ function makeFallback(Common) {
 
         get mode() { return mode; },
 
+        // Canonical clock for the replayed timeline (epoch ms). See CONTRACT level 2.
+        now() {
+            if (mode !== 'replay' || !replay) {
+                return Date.now();
+            }
+            const rec = replay.records[Math.min(index, replay.records.length - 1)];
+            const positionMs = rec ? rec.t - replay.baseT : 0;
+            return replay.originEpoch + positionMs;
+        },
+
         subscribe(event, cb, opts) {
             let set = listeners.get(event);
             if (!set) {
@@ -193,7 +214,7 @@ function makeFallback(Common) {
             emit('mode', {mode});
         },
 
-        loadReplay(ndjsonOrRecords, {speed: sp = 1, autoplay = false} = {}) {
+        loadReplay(ndjsonOrRecords, {speed: sp = 1, autoplay = false, absoluteTime = false} = {}) {
             const records = parseRecording(ndjsonOrRecords);
             teardownAllLive();
             mode = 'replay';
@@ -202,7 +223,11 @@ function makeFallback(Common) {
             playing = false;
             const baseT = records.length ? records[0].t : 0;
             const durationMs = records.length ? records[records.length - 1].t - baseT : 0;
-            replay = {records, baseT, durationMs};
+            // now() maps the current position (rec.t - baseT) onto originEpoch. Default rebases
+            // the recording to "now" (originEpoch = load wall clock); absoluteTime keeps the
+            // recording's own wall clock (originEpoch = baseT, so now() === rec.t).
+            const originEpoch = absoluteTime ? baseT : Date.now();
+            replay = {records, baseT, durationMs, originEpoch, absoluteTime};
             emit('mode', {mode});
             const events = [...new Set(records.map(r => r.e))];
             if (autoplay) {
@@ -249,6 +274,7 @@ function makeFallback(Common) {
                 mode, playing, speed,
                 positionMs: rec && replay ? rec.t - replay.baseT : 0,
                 durationMs: replay ? replay.durationMs : 0,
+                absoluteTime: replay ? !!replay.absoluteTime : false,
                 index, total: replay ? replay.records.length : 0,
             };
         },

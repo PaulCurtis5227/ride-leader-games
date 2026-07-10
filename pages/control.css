@@ -17,6 +17,9 @@ body {
     font-size: 13px;
     padding: 0.5rem;
     box-sizing: border-box;
+    /* Scroll the whole window when expanded sections (Config/Diagnostics) exceed its height. */
+    overflow-y: auto;
+    overflow-x: hidden;
     /* Self-sufficient dark styling so the window is readable even if the theme CSS is absent. */
     background: #1b1e24;
     color: #e8eaed;
@@ -114,6 +117,9 @@ section, details {
     background: rgba(255,255,255,0.12);
 }
 .queue-depth { font-size: 0.72rem; opacity: 0.6; }
+.send-ready { font-size: 0.68rem; opacity: 0.7; }
+.send-ready.ok { color: var(--rlg-accent); opacity: 1; }
+.send-ready.warn { color: var(--rlg-warn); opacity: 1; }
 .review-queue { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 0.4rem; }
 .review-item { border: 1px solid var(--rlg-warn); border-radius: 5px; padding: 0.35rem; }
 .review-text { width: 100%; box-sizing: border-box; resize: vertical; min-height: 2.4rem; font: inherit; }
