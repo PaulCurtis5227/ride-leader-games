@@ -54,13 +54,25 @@
  *   service.loadReplay(..., {absoluteTime=false})  — preserve original recorded timestamps in now().
  *   service.getReplayState() also returns {absoluteTime}.
  *
+ * level 3 (added):
+ *   Synchronous stepping drivers — advance the replay WITHOUT waiting for wall-clock time.
+ *   Records are dispatched synchronously and now() advances with `index` (no timers), so consumers
+ *   that read now() see the stream time jump forward. Each driver pauses the auto-player (play())
+ *   first — manual stepping takes over. Intended for instant headless tests, "jump to next segment"
+ *   replay UIs, and fast demos.
+ *   service.step(n=1)            -> dispatch next n records now; returns getReplayState()
+ *   service.advanceTo(ms)        -> dispatch records until replay position >= ms
+ *   service.stepUntil(predicate) -> dispatch until predicate(nextRec, state) is true; the matching
+ *                                   record is NOT dispatched (stop-before). Runs to end if never matched.
+ *   service.runToEnd()           -> dispatch all remaining records now
+ *
  * FILE FORMAT (NDJSON): first line is a meta header, then one event per line:
  *   {"__s4zstream":1,"createdAt":<ms>,"events":[...],"raw":true,"note":"..."}
  *   {"t":<epochMs>,"e":"nearby","d":<payload>}
  * ---------------------------------------------------------------------------
  */
 
-export const CONTRACT_LEVEL = 2;
+export const CONTRACT_LEVEL = 3;
 export const STREAM_FILE_VERSION = 1;
 const GLOBAL_KEY = '__s4zStreams';
 
@@ -132,6 +144,30 @@ function makeFallback(Common) {
         for (const event of [...liveForwarders.keys()]) {
             teardownLive(event);
         }
+    }
+
+    // Dispatch the record at `index` and advance (dispatch-then-increment, mirroring
+    // scheduleNext so now() stays correct inside a subscriber callback). No timer/scheduling.
+    // Emits 'replay-end' exactly once, on the step that advances past the last record.
+    function stepOnce() {
+        if (!replay) {
+            return false;
+        }
+        const rec = replay.records[index];
+        if (!rec) {
+            return false;
+        }
+        dispatch(rec.e, rec.d);
+        emit('replay-progress', {
+            positionMs: rec.t - replay.baseT,
+            durationMs: replay.durationMs,
+            index, total: replay.records.length,
+        });
+        index++;
+        if (index >= replay.records.length) {
+            emit('replay-end', {index, total: replay.records.length});
+        }
+        return true;
     }
 
     function scheduleNext() {
@@ -266,6 +302,65 @@ function makeFallback(Common) {
 
         setSpeed(x) {
             speed = x > 0 ? x : 1;
+        },
+
+        // --- CONTRACT level 3: synchronous stepping drivers ---------------------------------
+        // Advance the replay without waiting for wall-clock time. Records dispatch synchronously
+        // and now() jumps forward with the stream. All pause the auto-player first.
+        step(n = 1) {
+            if (mode !== 'replay' || !replay) {
+                return this.getReplayState();
+            }
+            clearTimeout(timer);
+            playing = false;
+            for (let i = 0; i < n; i++) {
+                if (!stepOnce()) {
+                    break;
+                }
+            }
+            return this.getReplayState();
+        },
+
+        advanceTo(ms) {
+            if (mode !== 'replay' || !replay) {
+                return this.getReplayState();
+            }
+            clearTimeout(timer);
+            playing = false;
+            const target = replay.baseT + Math.max(0, ms);
+            while (replay.records[index] && replay.records[index].t <= target) {
+                if (!stepOnce()) {
+                    break;
+                }
+            }
+            return this.getReplayState();
+        },
+
+        stepUntil(predicate) {
+            if (mode !== 'replay' || !replay) {
+                return this.getReplayState();
+            }
+            clearTimeout(timer);
+            playing = false;
+            while (replay.records[index]) {
+                if (predicate(replay.records[index], this.getReplayState())) {
+                    break;  // stop-before: matching record not dispatched
+                }
+                if (!stepOnce()) {
+                    break;
+                }
+            }
+            return this.getReplayState();
+        },
+
+        runToEnd() {
+            if (mode !== 'replay' || !replay) {
+                return this.getReplayState();
+            }
+            clearTimeout(timer);
+            playing = false;
+            while (stepOnce()) { /* dispatch all remaining */ }
+            return this.getReplayState();
         },
 
         getReplayState() {
