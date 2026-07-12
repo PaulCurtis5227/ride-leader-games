@@ -65,6 +65,9 @@
  *   service.stepUntil(predicate) -> dispatch until predicate(nextRec, state) is true; the matching
  *                                   record is NOT dispatched (stop-before). Runs to end if never matched.
  *   service.runToEnd()           -> dispatch all remaining records now
+ *   Recorder.mark(event, data?)  -> inject a custom record at the current moment (app-level
+ *                                   annotations, e.g. an operator "start" instant) so it replays
+ *                                   in place and dispatches to subscribers of `event`.
  *
  * FILE FORMAT (NDJSON): first line is a meta header, then one event per line:
  *   {"__s4zstream":1,"createdAt":<ms>,"events":[...],"raw":true,"note":"..."}
@@ -430,6 +433,23 @@ export class Recorder {
         if (!this.recording) {
             return;
         }
+        this._append(event, data);
+    }
+
+    /*
+     * mark(event, data) — inject a custom (non-stream) record into the recording at the current
+     * moment. Use it to persist app-level annotations that must replay in the right place, e.g. the
+     * instant an operator "started" a run. On replay these dispatch to subscribers of `event` just
+     * like stream events, at their recorded position, so consumers can restore that state exactly.
+     */
+    mark(event, data = {}) {
+        if (!this.recording) {
+            return;
+        }
+        this._append(event, data);
+    }
+
+    _append(event, data) {
         const line = JSON.stringify({t: Date.now(), e: event, d: data});
         this._lines.push(line);
         this._bytes += line.length + 1;
