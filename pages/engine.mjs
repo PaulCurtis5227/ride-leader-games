@@ -10,6 +10,8 @@
  * The winner is the rider with the lowest AVERAGE score over the game duration.
  */
 
+import {MESSAGES} from './messages.mjs';
+
 export const SEND_MODES = {SILENT: 'silent', REVIEW: 'review', AUTO: 'auto'};
 export const STATES = {IDLE: 'idle', RUNNING: 'running', FINISHED: 'finished'};
 
@@ -223,34 +225,31 @@ export class RideLeaderGame {
     // ---- message generation (pure strings; the send pipeline lives in the control window) ----
 
     startMessage() {
-        const p = this.config.chatPrefix ? this.config.chatPrefix + ' ' : '';
-        return `${p}Ride Leader Game ON! Closest average distance to the leader over ` +
-            `${this.config.durationMin} min wins. Hold the wheel!`;
+        return this._prefix() + MESSAGES.start(this.config.durationMin);
     }
 
-    standingsMessage(topN = 3) {
-        const p = this.config.chatPrefix ? this.config.chatPrefix + ' ' : '';
+    standingsMessage(nowMs, topN = 3) {
         const rows = this.qualifiedStandings().slice(0, topN);
         if (!rows.length) {
             return null;
         }
-        const parts = rows.map((r, i) => `${i + 1}) ${shortName(r.name)} ${fmtM(r.avg)}`);
-        return `${p}Standings: ${parts.join('  ')}`;
+        const parts = rows.map((r, i) => MESSAGES.rankEntry(i + 1, shortName(r.name), fmtM(r.avg)));
+        return this._prefix() + MESSAGES.standings(fmtClock(this.remainingMs(nowMs)), parts);
     }
 
-    winnerMessage(topN = 3) {
-        const p = this.config.chatPrefix ? this.config.chatPrefix + ' ' : '';
+    winnerMessage(topN = 5) {
         const rows = this.qualifiedStandings().slice(0, topN);
         if (!rows.length) {
-            return `${p}Game over — no qualifying riders (need ${this.config.minSamples}+ samples).`;
+            return this._prefix() + MESSAGES.noQualifiers(this.config.minSamples);
         }
         const win = rows[0];
-        const rest = rows.slice(1).map((r, i) => `${i + 2}) ${shortName(r.name)} ${fmtM(r.avg)}`);
-        let msg = `${p}Winner: ${shortName(win.name)} — avg ${fmtM(win.avg)} from the leader!`;
-        if (rest.length) {
-            msg += ` Then ${rest.join('  ')}`;
-        }
-        return msg;
+        const rest = rows.slice(1).map((r, i) => MESSAGES.rankEntry(i + 2, shortName(r.name), fmtM(r.avg)));
+        return this._prefix() + MESSAGES.winner(shortName(win.name), fmtM(win.avg), rest);
+    }
+
+    // Chat prefix + trailing space (empty when no prefix configured).
+    _prefix() {
+        return this.config.chatPrefix ? this.config.chatPrefix + ' ' : '';
     }
 
     // ---- diagnostics + export ----
@@ -322,11 +321,31 @@ function shortName(name) {
 }
 
 function fmtM(meters) {
-    return `${Math.round(meters)}m`;
+    return `${meters.toFixed(2)}m`;
+}
+
+// mm:ss, matching the control window's on-screen clock. Clamped at 0.
+function fmtClock(ms) {
+    const s = Math.max(0, Math.round(ms / 1000));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
 function round1(x) {
     return Math.round(x * 10) / 10;
+}
+
+
+/*
+ * Split a free-form instructions blob into distinct messages on blank lines. Each returned block
+ * is one logical message (the send pipeline then chunk-splits it to the configured max length and
+ * paces the chunks with the send delay). Blank-line separation lets the leader control message
+ * boundaries beyond the automatic length-based chunking. Returns [] for empty/whitespace input.
+ */
+export function instructionMessages(text) {
+    return String(text == null ? '' : text)
+        .split(/\r?\n\s*\r?\n/)
+        .map(s => s.replace(/\s+$/g, '').replace(/^\s+/g, ''))
+        .filter(Boolean);
 }
 
 

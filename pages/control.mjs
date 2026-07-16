@@ -1,13 +1,11 @@
 /*
  * Ride Leader Games — Control window.
  * Owns the game engine, the leaderboard, all chat sending, and diagnostics.
- * The overlay window is read-only and consumes the snapshot we publish to localStorage.
  */
 import * as Common from '/pages/src/common.mjs';
-import {RideLeaderGame, SEND_MODES, STATES, chunkMessage} from './engine.mjs';
+import {RideLeaderGame, SEND_MODES, STATES, chunkMessage, instructionMessages} from './engine.mjs';
+import {DEFAULT_INSTRUCTIONS} from './messages.mjs';
 import {getSauceStreams} from './s4z-streams.mjs';
-
-const STATE_SNAPSHOT_KEY = 'rlg:state';   // shared with the overlay (same-origin localStorage)
 
 // Data source: live Sauce today, transparently native later. Also gives us dev-time replay.
 const streams = getSauceStreams(Common);
@@ -32,10 +30,14 @@ const SETTING_DEFAULTS = {
     minSamples: 5,
     anomalyThresholdM: 150,
     leaderId: null,
+    sendInstructions: true,
+    instructions: DEFAULT_INSTRUCTIONS,
+    startDelay: 15,          // seconds to wait after instructions before the start message/timer
     announceStart: true,
     announcePeriodic: false,
     announceIntervalSec: 120,
     announceWinner: true,
+    resultsCount: 5,         // how many finishers to announce at the end
     showDiagnostics: true,
 };
 
@@ -43,6 +45,12 @@ let game;
 let els;
 let lastState = STATES.IDLE;
 let lastPeriodicAnnounce = 0;
+
+// ---- pre-roll (Start clicked -> instructions -> delay -> start message + timer) ----
+let starting = false;       // in the pre-roll phase (before the game timer runs)
+let startGen = 0;           // bumped by Stop/Reset to cancel an in-flight pre-roll
+let startPhase = '';        // '' | 'instructions' | 'countdown' (drives the clock display)
+let preRollGoAt = 0;        // clockNow() ms when the start message fires (countdown target)
 let lastNearbyCount = 0;
 let wsConnected = false;   // connected to Sauce's web server (the data pipe)
 let lastDataTs = 0;        // wall-clock ms of the last nearby tick (ground truth for "receiving data")
@@ -82,6 +90,13 @@ function fmtClock(ms) {
 
 function renderClock() {
     const now = clockNow();
+    if (starting) {
+        els.gameState.textContent = startPhase === 'instructions' ? 'Instructions…' : 'Starting…';
+        els.gameState.dataset.state = 'starting';
+        els.clock.textContent = startPhase === 'countdown' && preRollGoAt
+            ? fmtClock(preRollGoAt - now) : '· · ·';
+        return;
+    }
     const running = game.state === STATES.RUNNING;
     els.clock.textContent = running ? fmtClock(game.remainingMs(now))
         : game.state === STATES.FINISHED ? 'done' : '--:--';
@@ -175,26 +190,6 @@ function renderAll() {
 }
 
 
-// ---------------------------------------------------------------- snapshot for overlay
-
-function publishSnapshot() {
-    const now = clockNow();
-    const snap = {
-        v: 1,
-        at: now,
-        state: game.state,
-        remainingMs: game.remainingMs(now),
-        durationMin: game.config.durationMin,
-        leaderId: game.config.leaderId,
-        leaderVisible: game.leaderVisible,
-        standings: game.standings().slice(0, 20),
-    };
-    try {
-        localStorage.setItem(STATE_SNAPSHOT_KEY, JSON.stringify(snap));
-    } catch (e) { /* ignore quota/serialization issues */ }
-}
-
-
 // ---------------------------------------------------------------- send pipeline
 
 function enqueueMessage(text) {
@@ -227,6 +222,25 @@ function logOutbox(text, status) {
         outbox.splice(0, outbox.length - 500);
     }
     renderOutbox();
+}
+
+/*
+ * Resolve once the send queue has fully drained. In Auto mode this waits for every queued chunk
+ * to be sent (spaced by messageDelay); in Silent/Review the queue is never used for these messages
+ * so it resolves ~immediately. Used by the pre-roll to wait until instructions have gone out before
+ * starting the pre-start countdown.
+ */
+function whenQueueIdle() {
+    return new Promise(resolve => {
+        const check = () => {
+            if (!sendQueue.length && !draining) {
+                resolve();
+            } else {
+                setTimeout(check, 200);
+            }
+        };
+        check();
+    });
 }
 
 async function drainQueue() {
@@ -268,8 +282,56 @@ async function sendChat(text) {
 
 // ---------------------------------------------------------------- game control
 
-function onStart() {
+/*
+ * Start button. Runs the pre-roll: send instructions (before the timer), wait a configurable
+ * delay, then send the start message and begin the game/timer. Stop or Reset during the pre-roll
+ * cancels cleanly via the generation token (no start message, no game).
+ */
+async function onStart() {
+    if (starting || game.state === STATES.RUNNING) {
+        return;
+    }
     readConfigIntoEngine();
+    const gen = ++startGen;
+    starting = true;
+
+    // 1) Instructions — one message per blank-line-separated block (each auto-chunks + paces).
+    startPhase = 'instructions';
+    preRollGoAt = 0;
+    syncButtons();
+    renderClock();
+    if (get('sendInstructions')) {
+        for (const block of instructionMessages(get('instructions'))) {
+            enqueueMessage(block);
+        }
+        await whenQueueIdle();          // let instructions actually go out (Auto); instant otherwise
+        if (gen !== startGen) {         // cancelled by Stop/Reset
+            return;
+        }
+    }
+
+    // 2) Wait the configured delay, then start.
+    startPhase = 'countdown';
+    const delayMs = Math.max(0, (Number(get('startDelay')) || 0) * 1000);
+    preRollGoAt = clockNow() + delayMs;
+    renderClock();
+    if (delayMs > 0) {
+        await Common.sleep(delayMs);
+    }
+    if (gen !== startGen) {
+        return;
+    }
+    beginGame();
+}
+
+/*
+ * Begin the game immediately: timer + scoring start now, and the start message is sent. Called at
+ * the end of the pre-roll, and directly by the replay controls (which skip instructions/delay).
+ */
+function beginGame() {
+    starting = false;
+    startPhase = '';
+    preRollGoAt = 0;
     const now = clockNow();
     game.start(now);
     lastPeriodicAnnounce = now;
@@ -278,37 +340,48 @@ function onStart() {
     }
     syncButtons();
     renderAll();
-    publishSnapshot();
+}
+
+function cancelPreRoll() {
+    startGen++;             // invalidates any in-flight onStart()
+    starting = false;
+    startPhase = '';
+    preRollGoAt = 0;
 }
 
 function onStop() {
+    if (starting) {         // cancel the pre-roll — the game never started, nothing to finish
+        cancelPreRoll();
+        syncButtons();
+        renderAll();
+        return;
+    }
     game.stop(clockNow());
     onFinish();
 }
 
 function onReset() {
+    cancelPreRoll();
     game.reset();
     sendQueue.length = 0;
     reviewItems.length = 0;
     lastState = STATES.IDLE;
     syncButtons();
     renderAll();
-    publishSnapshot();
 }
 
 function onFinish() {
     if (get('announceWinner')) {
-        enqueueMessage(game.winnerMessage());
+        enqueueMessage(game.winnerMessage(Number(get('resultsCount')) || 5));
     }
     syncButtons();
     renderAll();
-    publishSnapshot();
 }
 
 function syncButtons() {
     const running = game.state === STATES.RUNNING;
-    els.btnStart.disabled = running;
-    els.btnStop.disabled = !running;
+    els.btnStart.disabled = running || starting;
+    els.btnStop.disabled = !running && !starting;
 }
 
 
@@ -329,7 +402,6 @@ function onNearby(entries) {
     }
     renderBoard();
     renderDiag();
-    publishSnapshot();
 }
 
 function updateReference(entries) {
@@ -458,6 +530,7 @@ export async function main() {
         diagSection: document.querySelector('#diagSection'),
         diagNote: document.querySelector('#diagNote'),
         diagLog: document.querySelector('#diagLog'),
+        instructionsNote: document.querySelector('#instructionsNote'),
     };
 
     game = new RideLeaderGame({
@@ -468,6 +541,17 @@ export async function main() {
 
     Common.initInteractionListeners();
     await Common.initSettingsForm('#configForm')();
+
+    // initSettingsForm only fills a field when the store holds a defined value, so an unsaved
+    // instructions setting leaves the textarea blank. Show the source default (display only — no
+    // store write) so the leader sees exactly what Start will send; get('instructions') already
+    // falls back to the same default via SETTING_DEFAULTS.
+    if (settings.get('instructions') === undefined) {
+        const ta = document.querySelector('#configForm [name="instructions"]');
+        if (ta) {
+            ta.value = DEFAULT_INSTRUCTIONS;
+        }
+    }
 
     // React to config changes (mode badge, prefix, diagnostics visibility, engine params).
     settings.addEventListener('set', () => {
@@ -480,6 +564,24 @@ export async function main() {
     els.btnStart.addEventListener('click', onStart);
     els.btnStop.addEventListener('click', onStop);
     els.btnReset.addEventListener('click', onReset);
+
+    // Load instructions from a text/markdown file into the (persisted) instructions field.
+    const instructionsFile = document.querySelector('#instructionsFile');
+    document.querySelector('#btnLoadInstructions').addEventListener('click', () => instructionsFile.click());
+    instructionsFile.addEventListener('change', async () => {
+        const file = instructionsFile.files && instructionsFile.files[0];
+        if (!file) {
+            return;
+        }
+        const text = await file.text();
+        settings.set('instructions', text);   // fires the 'set' listener -> re-reads config
+        const ta = document.querySelector('#configForm [name="instructions"]');
+        if (ta) {
+            ta.value = text;                   // keep the visible textarea in sync (programmatic set)
+        }
+        els.instructionsNote.textContent = `loaded ${file.name} (${instructionMessages(text).length} msg)`;
+        instructionsFile.value = '';           // allow re-loading the same file later
+    });
 
     // Ride-leader picker (managed manually; persisted into the same settings store).
     els.leaderPicker.addEventListener('change', () => {
@@ -554,7 +656,6 @@ export async function main() {
 
     syncButtons();
     renderAll();
-    publishSnapshot();
 }
 
 function wireReplayControls() {
@@ -594,7 +695,7 @@ function wireReplayControls() {
             playBtn.textContent = '▶ Play';
         } else {
             if (game.state !== STATES.RUNNING) {
-                onStart();   // auto-start a game to score the replayed data into
+                beginGame();   // auto-start immediately (dev replay skips the pre-roll instructions/delay)
             }
             streams.play();
             playBtn.textContent = '⏸ Pause';
@@ -635,7 +736,7 @@ function gameClock() {
             const interval = (Number(get('announceIntervalSec')) || 120) * 1000;
             if (now - lastPeriodicAnnounce >= interval) {
                 lastPeriodicAnnounce = now;
-                const msg = game.standingsMessage();
+                const msg = game.standingsMessage(now);
                 if (msg) {
                     enqueueMessage(msg);
                 }
@@ -648,5 +749,4 @@ function gameClock() {
     }
     renderClock();
     renderConn();   // refresh "receiving data" vs "waiting" as data recency changes
-    publishSnapshot();
 }

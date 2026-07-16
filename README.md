@@ -12,10 +12,9 @@ This repo lives in Sauce's unpacked mods folder so Sauce auto-loads it:
 C:\Users\<you>\Documents\SauceMods\ride-leader-games\
 ```
 
-Then in Sauce: **Settings → Mods**, enable *Ride Leader Games*, and restart Sauce. Two windows become available:
+Then in Sauce: **Settings → Mods**, enable *Ride Leader Games*, and restart Sauce. One window becomes available:
 
 - **Ride Leader Games — Control** — the leader's panel: configuration, live leaderboard, Start/Stop/Reset, chat review queue, and diagnostics.
-- **Ride Leader Games — Leaderboard Overlay** — a compact read-only leaderboard for players/streamers.
 
 ## How scoring works
 
@@ -39,7 +38,26 @@ All outgoing chat is generated centrally and routed through a single **send mode
 - **Review** — each message lands in an editable queue; you Send or Discard it.
 - **Auto** — messages are sent immediately as global in-game chat.
 
-Because a non-ride-leader Zwift account has limited chat, every message is split into a configurable **max length** (word-boundary chunks with `(i/n)` markers) and drained through a queue with a configurable **delay** between messages.
+Because a non-ride-leader Zwift account has limited chat, every message is split into a configurable **max length** (word-boundary chunks with `(i/n)` markers) and drained through a queue with a configurable **delay** between messages. Write one long message; the mod breaks it up and paces the pieces. In **Silent** mode you still see every chunk in the Messages pane exactly as it *would* be sent — nothing reaches Zwift.
+
+## Game communication flow
+
+When you hit **Start**, the mod runs a short pre-roll *before* the timer begins:
+
+1. **Instructions** — the text in the **Instructions** config field is sent first (one message per
+   blank-line-separated block; each block is chunked/paced like any other message). The field is
+   persisted, and **Load from file…** imports a `.txt`/`.md` into it, so your instructions can live
+   in a file. Toggle **Send instructions at start** to skip this.
+2. **Start delay** — after the instructions have gone out, the mod waits a configurable number of
+   seconds (**Delay before start message**).
+3. **Start message + GO** — the start message is sent and the game timer/scoring begin.
+
+During the game, enable **Announce periodic standings** to send a "who's leading" update every
+**Standings interval** seconds. When the game ends, the top **Winners to announce** finishers
+(default **5**) are sent. Both the periodic standings and the final results include each rider's
+**average distance** from the leader.
+
+Stop or Reset during the pre-roll cancels it cleanly — no start message, no game.
 
 ## Known limitations / diagnostics
 

@@ -9,8 +9,6 @@ leader wins. Full Sauce-mod authoring guide (manifest, APIs, gotchas) lives at
   the `nearby` list, `(i/n)` message chunking + throttled send queue. Unit-testable with Node.
 - `pages/control.{html,mjs,css}` — leader control window (`frame:true`): config, live leaderboard,
   game controls, chat review queue, diagnostics.
-- `pages/overlay.{html,mjs,css}` — read-only leaderboard overlay (`overlay:true`, frameless — it has
-  the `#titlebar` block so it can be closed via right-click → Close).
 - `pages/s4z-streams.mjs` — copy of the shared stream service (see `../s4z-stream-recorder`). Data
   flows through `getSauceStreams(Common).subscribe('nearby', …)` so live today / replayable in dev.
 
@@ -18,7 +16,6 @@ leader wins. Full Sauce-mod authoring guide (manifest, APIs, gotchas) lives at
 - `manifest.json` window `file` MUST include the `pages/` prefix (`pages/control.html`).
 - Install path is `C:\Users\paul\OneDrive\Documents\SauceMods\` via junction; restart Sauce for
   manifest changes, reopen a window for HTML/JS/CSS changes.
-- Frameless overlay needs a `#titlebar` or it can't be closed.
 - Scroll goes on `.rlg-control` (inner element), not `body` (host `html body{overflow:hidden}` wins);
   control window drops `passive-overlay-scrollbars` for a visible scrollbar.
 - Use `streams.now()` (not `Date.now()`) on the game timeline so replay works.

@@ -14,14 +14,6 @@
             "description": "Leader control panel: config, live leaderboard, game controls, chat review queue, diagnostics",
             "frame": true,
             "default_bounds": {"width": 560, "height": 820, "x": 0.08, "y": 0.08}
-        },
-        {
-            "file": "pages/overlay.html",
-            "id": "rlg-overlay",
-            "name": "Ride Leader Games — Leaderboard Overlay",
-            "description": "Compact read-only leaderboard overlay for players and streamers",
-            "overlay": true,
-            "default_bounds": {"width": 320, "height": 440, "x": -0.02, "y": 0.15}
         }
     ]
 }

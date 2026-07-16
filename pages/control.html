@@ -78,6 +78,21 @@
             <label>Delay between messages (seconds)
                 <input type="number" name="messageDelay" min="0" max="60" step="0.5" value="4"/>
             </label>
+            <label class="checkbox">
+                <input type="checkbox" name="sendInstructions" checked/> Send instructions at start
+            </label>
+            <label>Instructions (sent at Start, before the timer — blank line = new message)
+                <textarea name="instructions" rows="4"
+                    placeholder="Default instructions are shown; edit to customize. One paragraph per message; a blank line starts a new message."></textarea>
+            </label>
+            <div class="instr-tools">
+                <button type="button" class="rlg-btn small" id="btnLoadInstructions">Load from file…</button>
+                <input type="file" id="instructionsFile" accept=".txt,.md,text/plain,text/markdown" hidden/>
+                <span class="instr-note" id="instructionsNote"></span>
+            </div>
+            <label>Delay before start message (seconds)
+                <input type="number" name="startDelay" min="0" max="300" step="1" value="15"/>
+            </label>
             <label>Min samples to qualify
                 <input type="number" name="minSamples" min="1" max="1000" step="1" value="5"/>
             </label>
@@ -95,6 +110,9 @@
             </label>
             <label class="checkbox">
                 <input type="checkbox" name="announceWinner" checked/> Announce winner
+            </label>
+            <label>Winners to announce
+                <input type="number" name="resultsCount" min="1" max="10" step="1" value="5"/>
             </label>
             <label class="checkbox">
                 <input type="checkbox" name="showDiagnostics" checked/> Show diagnostics

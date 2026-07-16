@@ -6,3 +6,5 @@ Thumbs.db
 rlg-diagnostics-*.json
 rlg-diagnostics-*.csv
 dist/
+# IDE
+.idea/
