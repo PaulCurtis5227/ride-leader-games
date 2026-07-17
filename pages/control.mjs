@@ -15,6 +15,8 @@ import * as Common from '/pages/src/common.mjs';
 import {RideLeaderGame, SEND_MODES, STATES, chunkMessage, instructionMessages} from './engine.mjs';
 import {DEFAULT_INSTRUCTIONS} from './messages.mjs';
 import {getSauceStreams} from './s4z-streams.mjs';
+import {JokeDeck} from './jokedeck.mjs';
+import {JOKES} from './jokes-data.mjs';
 
 // Data source: live Sauce today, transparently native later. Also gives us dev-time replay.
 const streams = getSauceStreams(Common);
@@ -48,6 +50,9 @@ const SETTING_DEFAULTS = {
     announceWinner: true,
     resultsCount: 5,         // how many finishers to announce at the end
     showDiagnostics: true,
+    fontScale: 1,            // UI font scale multiplier (see applyFontScale)
+    answerDelay: 8,          // seconds between a joke's setup and its punchline
+    jokePrefix: '\u{1F602}', // 😂 prepended to joke messages (empty to disable)
 };
 
 let game;
@@ -72,10 +77,30 @@ const outbox = [];          // {t, text, status}
 const reviewItems = [];     // {id, text}
 let reviewSeq = 0;
 
+// ---- jokes (independent of the game; sends setup now, punchline after answerDelay) ----
+let jokeDeck;
+let jokeSending = false;     // true between the setup send and the punchline send
+let jokeSendGen = 0;        // bumped by Skip / re-send to cancel an in-flight punchline
+let punchlineAt = 0;        // Date.now() ms when the punchline fires (0 = nothing pending)
+
 
 function get(key) {
     const v = settings.get(key);
     return v === undefined ? SETTING_DEFAULTS[key] : v;
+}
+
+/*
+ * Scale the whole UI by setting the root font-size multiplier (control.css bases every rem on
+ * `calc(16px * var(--rlg-font-scale))`). Clamped so a stray setting can't make the window unusable.
+ */
+function applyFontScale(scaleOverride) {
+    const raw = scaleOverride != null ? scaleOverride : get('fontScale');
+    const scale = Math.min(2, Math.max(0.6, Number(raw) || 1));
+    document.documentElement.style.setProperty('--rlg-font-scale', String(scale));
+    const out = document.querySelector('#fontScaleVal');
+    if (out) {
+        out.textContent = `${Math.round(scale * 100)}%`;
+    }
 }
 
 function readConfigIntoEngine() {
@@ -124,7 +149,7 @@ function renderBoard() {
         <li class="${r.qualified ? '' : 'unqualified'}">
             <span class="rank">${i + 1}</span>
             <span class="name">${Common.sanitize(r.name)}</span>
-            <span class="avg">${Math.round(r.avg)}m</span>
+            <span class="avg">${r.avg.toFixed(2)}m</span>
             <span class="samples" title="scoring samples${r.carriedTicks ? ` · ${r.carriedTicks} carried` : ''}">${r.samples}${r.carriedTicks ? '*' : ''}</span>
         </li>`).join('');
 }
@@ -286,6 +311,98 @@ async function sendChat(text) {
         console.error('chatMessage failed:', e);
     }
     renderOutbox();
+}
+
+
+// ---------------------------------------------------------------- jokes
+
+function jokePrefixStr() {
+    const p = get('jokePrefix');
+    return p ? p + ' ' : '';
+}
+
+// Render the current joke into the card. The leader always sees the full joke (both parts) so
+// they can decide whether to send it; chat only reveals the punchline after the answer delay.
+function renderJoke() {
+    const j = jokeDeck.current;
+    els.jokeNote.textContent = jokeDeck.size ? `${jokeDeck.size} in deck` : 'no jokes loaded';
+    if (!j) {
+        els.jokeSetup.textContent = 'No jokes available.';
+        els.jokePunchline.textContent = '';
+        return;
+    }
+    els.jokeSetup.textContent = j.setup;
+    els.jokePunchline.textContent = j.punchline;
+}
+
+// Live countdown while a punchline is pending; driven by the 1s ticker. Leaves any prior status
+// (e.g. "Sent") untouched when nothing is pending.
+function renderJokeStatus() {
+    if (!jokeSending || !punchlineAt) {
+        return;
+    }
+    const remain = Math.max(0, Math.ceil((punchlineAt - Date.now()) / 1000));
+    els.jokeStatus.textContent = remain > 0 ? `Punchline in ${remain}s…` : 'Sending punchline…';
+    els.jokeStatus.classList.add('warn');
+}
+
+function syncJokeButtons() {
+    els.btnSendJoke.disabled = jokeSending || !jokeDeck.current;
+    els.btnSendJoke.textContent = jokeSending ? 'Sending…' : 'Send joke';
+    els.btnSkipJoke.disabled = !jokeDeck.current;
+}
+
+// Advance to a fresh random joke (also cancels any in-flight punchline). Used by Skip and to auto-
+// load the next joke after one is sent.
+function nextJoke() {
+    cancelPendingPunchline();
+    jokeDeck.next();
+    renderJoke();
+    els.jokeStatus.textContent = '';
+    els.jokeStatus.classList.remove('warn');
+    syncJokeButtons();
+}
+
+function cancelPendingPunchline() {
+    jokeSendGen++;      // invalidates any in-flight onSendJoke()
+    jokeSending = false;
+    punchlineAt = 0;
+}
+
+/*
+ * Send the current joke: the setup goes out now, and the punchline after the configured answer
+ * delay. Both go through the normal send pipeline (chunking + send-mode gate), so jokes respect
+ * Silent/Review/Auto just like game messages. Skip or a re-send cancels a pending punchline via the
+ * generation token. On success the next joke is auto-loaded so the leader is ready to go again.
+ */
+async function onSendJoke() {
+    const j = jokeDeck.current;
+    if (!j || jokeSending) {
+        return;
+    }
+    const gen = ++jokeSendGen;
+    jokeSending = true;
+    const prefix = jokePrefixStr();
+    enqueueMessage(prefix + j.setup);
+
+    const delayMs = Math.max(0, (Number(get('answerDelay')) || 0) * 1000);
+    punchlineAt = Date.now() + delayMs;
+    syncJokeButtons();
+    renderJokeStatus();
+    if (delayMs > 0) {
+        await Common.sleep(delayMs);
+    }
+    if (gen !== jokeSendGen) {       // skipped or re-sent during the delay
+        return;
+    }
+    enqueueMessage(prefix + j.punchline);
+    jokeSending = false;
+    punchlineAt = 0;
+    els.jokeStatus.textContent = 'Sent ✓ — next joke ready.';
+    els.jokeStatus.classList.remove('warn');
+    jokeDeck.next();                 // auto-load the next joke (keeps the "Sent" status visible)
+    renderJoke();
+    syncJokeButtons();
 }
 
 
@@ -536,6 +653,12 @@ export async function main() {
         queueDepth: document.querySelector('#queueDepth'),
         reviewQueue: document.querySelector('#reviewQueue'),
         outbox: document.querySelector('#outbox'),
+        jokeNote: document.querySelector('#jokeNote'),
+        jokeSetup: document.querySelector('#jokeSetup'),
+        jokePunchline: document.querySelector('#jokePunchline'),
+        jokeStatus: document.querySelector('#jokeStatus'),
+        btnSendJoke: document.querySelector('#btnSendJoke'),
+        btnSkipJoke: document.querySelector('#btnSkipJoke'),
         diagSection: document.querySelector('#diagSection'),
         diagNote: document.querySelector('#diagNote'),
         diagLog: document.querySelector('#diagLog'),
@@ -550,6 +673,14 @@ export async function main() {
 
     Common.initInteractionListeners();
     await Common.initSettingsForm('#configForm')();
+    applyFontScale();
+
+    // Live font-scale feedback while dragging (the store commits on 'change'; the 'set' listener
+    // then re-applies the clamped, persisted value).
+    const fontScaleEl = document.querySelector('#configForm [name="fontScale"]');
+    if (fontScaleEl) {
+        fontScaleEl.addEventListener('input', () => applyFontScale(fontScaleEl.value));
+    }
 
     // initSettingsForm only fills a field when the store holds a defined value, so an unsaved
     // instructions setting leaves the textarea blank. Show the source default (display only — no
@@ -565,6 +696,7 @@ export async function main() {
     // React to config changes (mode badge, prefix, diagnostics visibility, engine params).
     settings.addEventListener('set', () => {
         readConfigIntoEngine();
+        applyFontScale();
         renderOutbox();
         renderDiag();
     });
@@ -573,6 +705,14 @@ export async function main() {
     els.btnStart.addEventListener('click', onStart);
     els.btnStop.addEventListener('click', onStop);
     els.btnReset.addEventListener('click', onReset);
+
+    // Jokes — deal the first joke immediately so Send/Skip are live on open.
+    jokeDeck = new JokeDeck(JOKES);
+    jokeDeck.next();
+    renderJoke();
+    syncJokeButtons();
+    els.btnSendJoke.addEventListener('click', onSendJoke);
+    els.btnSkipJoke.addEventListener('click', nextJoke);
 
     // Load instructions from a text/markdown file into the (persisted) instructions field.
     const instructionsFile = document.querySelector('#instructionsFile');
@@ -758,4 +898,5 @@ function gameClock() {
     }
     renderClock();
     renderConn();   // refresh "receiving data" vs "waiting" as data recency changes
+    renderJokeStatus();   // live "punchline in Ns…" countdown while a joke send is pending
 }

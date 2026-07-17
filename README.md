@@ -14,7 +14,7 @@ C:\Users\<you>\Documents\SauceMods\ride-leader-games\
 
 Then in Sauce: **Settings → Mods**, enable *Ride Leader Games*, and restart Sauce. One window becomes available:
 
-- **Ride Leader Games — Control** — the leader's panel: configuration, live leaderboard, Start/Stop/Reset, chat review queue, and diagnostics.
+- **Ride Leader Games — Control** — the leader's panel: configuration, live leaderboard, Start/Stop/Reset, chat review queue, a bicycle-joke sender, and diagnostics.
 
 ## How scoring works
 
@@ -58,6 +58,23 @@ During the game, enable **Announce periodic standings** to send a "who's leading
 **average distance** from the leader.
 
 Stop or Reset during the pre-roll cancels it cleanly — no start message, no game.
+
+## Jokes
+
+The Control window has a **Jokes** panel for entertaining the group between efforts. It ships with
+~200 original short bicycle jokes, each a two-part question/answer:
+
+- **Send joke** — sends the setup to chat now, then the punchline after a configurable **Joke answer
+  delay (setup → punchline)** (default **8 s**). A live "Punchline in *N*s…" countdown shows while
+  it waits, and the next joke auto-loads once it's sent.
+- **Skip** — discards the current joke and draws the next one (also cancels a punchline still
+  waiting to send).
+
+Jokes are drawn in a shuffled order so none repeats until the whole deck has been shown. Both parts
+go through the same send pipeline as game messages, so they honor your **send mode**
+(Silent/Review/Auto) and length chunking, and carry a configurable **Joke prefix** (default 😂). In
+**Silent** mode the setup and punchline appear in the Messages pane exactly as they *would* be sent,
+so you can preview a joke without posting it.
 
 ## Known limitations / diagnostics
 

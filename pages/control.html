@@ -66,9 +66,28 @@
         <ul id="outbox" class="outbox"></ul>
     </section>
 
+    <section class="rlg-jokes">
+        <h2>Jokes <small id="jokeNote"></small></h2>
+        <div class="joke-card">
+            <div class="joke-setup" id="jokeSetup">…</div>
+            <div class="joke-punchline" id="jokePunchline"></div>
+        </div>
+        <div class="joke-status" id="jokeStatus"></div>
+        <div class="joke-controls">
+            <button class="rlg-btn primary" id="btnSendJoke">Send joke</button>
+            <button class="rlg-btn" id="btnSkipJoke">Skip</button>
+        </div>
+    </section>
+
     <details class="rlg-config">
         <summary>Configuration</summary>
         <form id="configForm">
+            <label>Font scale (window text size)
+                <span class="range-row">
+                    <input type="range" name="fontScale" min="0.6" max="1.6" step="0.05" value="1"/>
+                    <output id="fontScaleVal">100%</output>
+                </span>
+            </label>
             <label>Game duration (minutes)
                 <input type="number" name="duration" min="1" max="240" step="1" value="20"/>
             </label>
@@ -87,6 +106,12 @@
             </label>
             <label>Delay between messages (seconds)
                 <input type="number" name="messageDelay" min="0" max="60" step="0.5" value="4"/>
+            </label>
+            <label>Joke answer delay — setup to punchline (seconds)
+                <input type="number" name="answerDelay" min="0" max="120" step="1" value="8"/>
+            </label>
+            <label>Joke prefix
+                <input type="text" name="jokePrefix" maxlength="8" value="😂"/>
             </label>
             <label class="checkbox">
                 <input type="checkbox" name="sendInstructions" checked/> Send instructions at start
