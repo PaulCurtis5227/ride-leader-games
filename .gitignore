@@ -8,3 +8,5 @@ rlg-diagnostics-*.csv
 dist/
 # IDE
 .idea/
+# Local agent guidance (kept local; may contain machine-specific paths)
+CLAUDE.md
