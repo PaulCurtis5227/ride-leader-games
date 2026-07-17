@@ -36,6 +36,11 @@
             <div class="state" id="gameState">Idle</div>
             <div class="time" id="clock">--:--</div>
         </div>
+        <div class="game-pick">
+            <label>Game</label>
+            <select id="gamePicker"></select>
+            <div class="game-desc" id="gameDesc"></div>
+        </div>
         <div class="reference">
             <label>Ride leader (scoring reference)</label>
             <div class="ref-line">
@@ -118,7 +123,7 @@
             </label>
             <label>Instructions (sent at Start, before the timer — blank line = new message)
                 <textarea name="instructions" rows="4"
-                    placeholder="Default instructions are shown; edit to customize. One paragraph per message; a blank line starts a new message."></textarea>
+                    placeholder="The selected game's default instructions are shown; edit to customize (your edits apply to every game). One paragraph per message; a blank line starts a new message."></textarea>
             </label>
             <div class="instr-tools">
                 <button type="button" class="rlg-btn small" id="btnLoadInstructions">Load from file…</button>

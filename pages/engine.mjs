@@ -10,25 +10,29 @@
  *
  * Ride Leader Games — game engine (framework-agnostic, no DOM).
  *
- * Scoring: each rider's score is their road distance from the ride leader, derived from
- * Sauce's `nearby` gapDistance (which is relative to the *watched* rider) by subtracting the
- * leader's own gapDistance as an offset:
+ * The engine is game-agnostic: it owns the timer, per-rider averaging, carry-forward for riders
+ * that drop out of the `nearby` list, diagnostics, and export. WHAT gets scored is supplied by a
+ * pluggable game definition (see games.mjs) via `config.game` — it reads a value off each `nearby`
+ * entry, turns it into a per-tick score, and decides ranking direction + formatting. Two games ship:
  *
- *     score_i = | gapDistance_i - gapDistance_leader |
+ *   - leader-distance (default): score_i = |gapDistance_i − gapDistance_leader|; lowest average wins.
+ *   - cadence:                   score_i = cadence_i (RPM);                      highest average wins.
  *
- * The winner is the rider with the lowest AVERAGE score over the game duration.
+ * The winner is the rider with the best AVERAGE score over the game duration (best = lowest or
+ * highest per the game's `higherIsBetter`).
  */
 
-import {MESSAGES} from './messages.mjs';
+import {LEADER_DISTANCE_GAME} from './games.mjs';
 
 export const SEND_MODES = {SILENT: 'silent', REVIEW: 'review', AUTO: 'auto'};
 export const STATES = {IDLE: 'idle', RUNNING: 'running', FINISHED: 'finished'};
 
 export const DEFAULT_CONFIG = {
+    game: LEADER_DISTANCE_GAME, // active game definition (scoring/ranking/formatting/messages)
     durationMin: 20,          // game length in minutes
     leaderId: null,           // configured ride-leader athleteId, or null => use watched rider
     minSamples: 5,            // scoring samples required to qualify for the final ranking
-    anomalyThresholdM: 150,   // per-tick |gapDistance| jump that flags a possible data anomaly (e.g. a rider re-appearing far away after dropping out of the list at an intersection)
+    anomalyThresholdM: 150,   // per-tick reading jump that flags a possible data anomaly (e.g. a rider re-appearing far away after dropping out of the list at an intersection); used by games that opt in (leader-distance)
     maxRiders: 100,           // Sauce nearby cap; used to detect list saturation
     chatPrefix: '\u{1F3C1}',  // 🏁
 };
@@ -48,7 +52,7 @@ export class RideLeaderGame {
 
     reset() {
         this.state = STATES.IDLE;
-        this.athletes = new Map();   // athleteId -> {athleteId, name, sum, count, lastGapDistance, lastSeenTick, carriedTicks}
+        this.athletes = new Map();   // athleteId -> {athleteId, name, sum, count, lastReading, lastSeenTick, carriedTicks}
         this.diagnostics = [];       // rolling diagnostic event log
         this.rawSamples = [];        // per-tick compact rows for export
         this.tick = 0;
@@ -61,6 +65,11 @@ export class RideLeaderGame {
 
     setConfig(patch) {
         this.config = {...this.config, ...patch};
+    }
+
+    // The active game definition (falls back to the default so a bare config still works).
+    _game() {
+        return this.config.game || LEADER_DISTANCE_GAME;
     }
 
     start(nowMs) {
@@ -112,84 +121,98 @@ export class RideLeaderGame {
         }
         this.tick++;
         const tick = this.tick;
+        const game = this._game();
 
         this.saturated = entries.length >= this.config.maxRiders;
         if (this.saturated) {
             this._diag('list-saturated', {tick, riders: entries.length, cap: this.config.maxRiders});
         }
 
-        // Resolve the scoring reference (offset). With a configured leader we must find them in
-        // this tick's list; if absent, skip scoring this tick rather than corrupt averages.
-        const leaderId = this.config.leaderId;
+        // Resolve the scoring reference (offset). Games that score relative to the ride leader
+        // (needsReference) require the leader in this tick's list; if a configured leader is absent
+        // we skip scoring this tick rather than corrupt averages. Games without a reference (e.g.
+        // cadence) score every rider on their own value, so no leader gating and no exclusions.
         let offset = 0;
-        let effectiveLeaderId = null;
-        if (leaderId != null) {
-            const leaderEntry = entries.find(e => e.athleteId === leaderId);
-            if (!leaderEntry || !Number.isFinite(leaderEntry.gapDistance)) {
-                if (this.leaderVisible !== false) {
-                    this._diag('leader-not-visible', {tick, leaderId});
+        let effectiveLeaderId = null;   // recorded on raw rows for context
+        let excludeId = null;           // rider excluded from scoring (the reference), or none
+        if (game.needsReference) {
+            const leaderId = this.config.leaderId;
+            if (leaderId != null) {
+                const leaderEntry = entries.find(e => e.athleteId === leaderId);
+                if (!leaderEntry || !Number.isFinite(game.read(leaderEntry))) {
+                    if (this.leaderVisible !== false) {
+                        this._diag('leader-not-visible', {tick, leaderId});
+                    }
+                    this.leaderVisible = false;
+                    return false;
                 }
-                this.leaderVisible = false;
-                return false;
+                this.leaderVisible = true;
+                offset = game.read(leaderEntry);
+                effectiveLeaderId = leaderId;
+            } else {
+                // Reference = watched rider (gapDistance is already relative to them, so offset 0).
+                const watched = entries.find(e => e.watching);
+                effectiveLeaderId = watched ? watched.athleteId : null;
             }
-            this.leaderVisible = true;
-            offset = leaderEntry.gapDistance;
-            effectiveLeaderId = leaderId;
+            excludeId = effectiveLeaderId;
         } else {
-            // Reference = watched rider (gapDistance is already relative to them, so offset 0).
             const watched = entries.find(e => e.watching);
-            effectiveLeaderId = watched ? watched.athleteId : null;
+            effectiveLeaderId = watched ? watched.athleteId : null;   // context only; still scored
+            this.leaderVisible = null;
         }
 
+        const ctx = {offset};
+        const anomalyThreshold = game.anomalyThreshold ? game.anomalyThreshold(this.config) : null;
         const present = new Set();
         const rawRow = {tick, t: nowMs, leaderId: effectiveLeaderId, offset, saturated: this.saturated, riders: []};
 
-        // Score every rider present this tick (except the leader themselves).
+        // Score every rider present this tick (except the reference rider, when there is one).
         for (const e of entries) {
-            if (!Number.isFinite(e.gapDistance) || e.athleteId === effectiveLeaderId) {
+            const reading = game.read(e);
+            if (!Number.isFinite(reading) || e.athleteId === excludeId) {
                 continue;
             }
             present.add(e.athleteId);
-            const score = Math.abs(e.gapDistance - offset);
+            const score = game.score(reading, ctx);
             const rec = this._record(e.athleteId, e);
 
-            if (rec.lastGapDistance != null) {
-                const jump = Math.abs(e.gapDistance - rec.lastGapDistance);
-                if (jump > this.config.anomalyThresholdM) {
+            if (anomalyThreshold != null && rec.lastReading != null) {
+                const jump = Math.abs(reading - rec.lastReading);
+                if (jump > anomalyThreshold) {
                     this._diag('anomaly', {
                         tick, athleteId: e.athleteId, name: rec.name,
-                        jumpM: Math.round(jump), fromM: Math.round(rec.lastGapDistance),
-                        toM: Math.round(e.gapDistance),
+                        jumpM: Math.round(jump), fromM: Math.round(rec.lastReading),
+                        toM: Math.round(reading),
                     });
                 }
             }
 
             rec.name = nameOf(e) || rec.name;
-            rec.lastGapDistance = e.gapDistance;
+            rec.lastReading = reading;
             rec.lastSeenTick = tick;
             rec.carriedTicks = 0;
             rec.sum += score;
             rec.count++;
-            rawRow.riders.push({id: e.athleteId, gapDistance: round1(e.gapDistance), score: round1(score), carried: false});
+            rawRow.riders.push({id: e.athleteId, reading: round1(reading), score: round1(score), carried: false});
         }
 
         // Carry-forward: riders we were tracking that dropped out of this tick's list keep
-        // scoring against their last known gap. Riders drop out at intersections (the far side of
-        // the intersection isn't listed) or when the list saturates at the cap; this is interim
+        // scoring against their last known reading. Riders drop out at intersections (the far side
+        // of the intersection isn't listed) or when the list saturates at the cap; this is interim
         // behavior until we know how we want to handle those gaps.
         for (const rec of this.athletes.values()) {
-            if (present.has(rec.athleteId) || rec.athleteId === effectiveLeaderId || rec.lastGapDistance == null) {
+            if (present.has(rec.athleteId) || rec.athleteId === excludeId || rec.lastReading == null) {
                 continue;
             }
-            const score = Math.abs(rec.lastGapDistance - offset);
+            const score = game.score(rec.lastReading, ctx);
             rec.carriedTicks++;
             rec.sum += score;
             rec.count++;
             this._diag('carry-forward', {
                 tick, athleteId: rec.athleteId, name: rec.name,
-                carriedTicks: rec.carriedTicks, heldM: round1(rec.lastGapDistance),
+                carriedTicks: rec.carriedTicks, heldM: round1(rec.lastReading),
             });
-            rawRow.riders.push({id: rec.athleteId, gapDistance: round1(rec.lastGapDistance), score: round1(score), carried: true});
+            rawRow.riders.push({id: rec.athleteId, reading: round1(rec.lastReading), score: round1(score), carried: true});
         }
 
         this._pushRaw(rawRow);
@@ -203,15 +226,16 @@ export class RideLeaderGame {
                 athleteId,
                 name: entry ? nameOf(entry) : String(athleteId),
                 sum: 0, count: 0,
-                lastGapDistance: null, lastSeenTick: null, carriedTicks: 0,
+                lastReading: null, lastSeenTick: null, carriedTicks: 0,
             };
             this.athletes.set(athleteId, rec);
         }
         return rec;
     }
 
-    /* Current ranking, ascending by average distance. */
+    /* Current ranking, best average first (lowest, or highest for a higherIsBetter game). */
     standings() {
+        const higher = this._game().higherIsBetter;
         const rows = [];
         for (const rec of this.athletes.values()) {
             if (rec.count > 0) {
@@ -225,7 +249,7 @@ export class RideLeaderGame {
                 });
             }
         }
-        rows.sort((a, b) => a.avg - b.avg);
+        rows.sort((a, b) => higher ? b.avg - a.avg : a.avg - b.avg);
         return rows;
     }
 
@@ -236,26 +260,28 @@ export class RideLeaderGame {
     // ---- message generation (pure strings; the send pipeline lives in the control window) ----
 
     startMessage() {
-        return this._prefix() + MESSAGES.start(this.config.durationMin);
+        return this._prefix() + this._game().messages.start(this.config.durationMin);
     }
 
     standingsMessage(nowMs, topN = 3) {
+        const game = this._game();
         const rows = this.qualifiedStandings().slice(0, topN);
         if (!rows.length) {
             return null;
         }
-        const parts = rows.map((r, i) => MESSAGES.rankEntry(i + 1, shortName(r.name), fmtM(r.avg)));
-        return this._prefix() + MESSAGES.standings(fmtClock(this.remainingMs(nowMs)), parts);
+        const parts = rows.map((r, i) => game.messages.rankEntry(i + 1, shortName(r.name), game.format(r.avg)));
+        return this._prefix() + game.messages.standings(fmtClock(this.remainingMs(nowMs)), parts);
     }
 
     winnerMessage(topN = 5) {
+        const game = this._game();
         const rows = this.qualifiedStandings().slice(0, topN);
         if (!rows.length) {
-            return this._prefix() + MESSAGES.noQualifiers(this.config.minSamples);
+            return this._prefix() + game.messages.noQualifiers(this.config.minSamples);
         }
         const win = rows[0];
-        const rest = rows.slice(1).map((r, i) => MESSAGES.rankEntry(i + 2, shortName(r.name), fmtM(r.avg)));
-        return this._prefix() + MESSAGES.winner(shortName(win.name), fmtM(win.avg), rest);
+        const rest = rows.slice(1).map((r, i) => game.messages.rankEntry(i + 2, shortName(r.name), game.format(r.avg)));
+        return this._prefix() + game.messages.winner(shortName(win.name), game.format(win.avg), rest);
     }
 
     // Chat prefix + trailing space (empty when no prefix configured).
@@ -301,14 +327,16 @@ export class RideLeaderGame {
         };
     }
 
-    /* Flat per-rider-per-tick CSV for spreadsheet analysis of intersection behavior. */
+    /* Flat per-rider-per-tick CSV for spreadsheet analysis of intersection behavior. The `reading`
+     * column is the game's raw per-rider value this tick (gapDistance for leader-distance, RPM for
+     * cadence); `score` is what that reading contributed to the average. */
     exportCSV() {
-        const lines = ['tick,time,leaderId,offset,saturated,athleteId,gapDistance,score,carried'];
+        const lines = ['tick,time,leaderId,offset,saturated,athleteId,reading,score,carried'];
         for (const row of this.rawSamples) {
             for (const r of row.riders) {
                 lines.push([
                     row.tick, row.t, row.leaderId ?? '', row.offset,
-                    row.saturated ? 1 : 0, r.id, r.gapDistance, r.score, r.carried ? 1 : 0,
+                    row.saturated ? 1 : 0, r.id, r.reading, r.score, r.carried ? 1 : 0,
                 ].join(','));
             }
         }
@@ -329,10 +357,6 @@ function nameOf(entry) {
 
 function shortName(name) {
     return name || 'Rider';
-}
-
-function fmtM(meters) {
-    return `${meters.toFixed(2)}m`;
 }
 
 // mm:ss, matching the control window's on-screen clock. Clamped at 0.

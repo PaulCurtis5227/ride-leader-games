@@ -13,7 +13,9 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {DEFAULT_INSTRUCTIONS, MESSAGES} from '../pages/messages.mjs';
+import {
+    DEFAULT_INSTRUCTIONS, MESSAGES, CADENCE_INSTRUCTIONS, CADENCE_MESSAGES,
+} from '../pages/messages.mjs';
 import {instructionMessages} from '../pages/engine.mjs';
 
 test('DEFAULT_INSTRUCTIONS is a non-empty multi-block blob', () => {
@@ -46,4 +48,35 @@ test('MESSAGES.winner appends runner-ups only when present', () => {
 
 test('MESSAGES.noQualifiers cites the sample threshold', () => {
     assert.match(MESSAGES.noQualifiers(5), /no winner winners needed 5\+ samples/);
+});
+
+
+// ---- cadence game text ----
+
+test('CADENCE_INSTRUCTIONS is a non-empty multi-block blob', () => {
+    assert.equal(typeof CADENCE_INSTRUCTIONS, 'string');
+    assert.ok(CADENCE_INSTRUCTIONS.trim().length > 0);
+    assert.ok(instructionMessages(CADENCE_INSTRUCTIONS).length >= 2);
+});
+
+test('CADENCE_MESSAGES.start embeds the duration', () => {
+    assert.match(CADENCE_MESSAGES.start(20), /20 min/);
+    assert.match(CADENCE_MESSAGES.start(20), /Cadence Challenge ON!/);
+});
+
+test('CADENCE_MESSAGES.rankEntry formats rank, name and value', () => {
+    assert.equal(CADENCE_MESSAGES.rankEntry(2, 'Alice', '85rpm'), '2) Alice 85rpm');
+});
+
+test('CADENCE_MESSAGES.standings prepends time to go and joins the ranking parts', () => {
+    assert.equal(
+        CADENCE_MESSAGES.standings('5:00', ['1) A 90rpm', '2) B 80rpm']),
+        '5:00 to go. Standings: 1) A 90rpm  2) B 80rpm',
+    );
+});
+
+test('CADENCE_MESSAGES.winner has no leader wording and appends runner-ups when present', () => {
+    assert.equal(CADENCE_MESSAGES.winner('Alice', '90rpm', []), 'Winner: Alice — avg 90rpm!');
+    assert.ok(!/from the leader/.test(CADENCE_MESSAGES.winner('Alice', '90rpm', [])));
+    assert.match(CADENCE_MESSAGES.winner('Alice', '90rpm', ['2) Bob 80rpm']), /Then 2\) Bob 80rpm$/);
 });

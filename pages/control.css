@@ -89,12 +89,14 @@ section, details {
 
 /* status block */
 .rlg-status { display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 0.8rem; align-items: center; }
-.clock { text-align: center; }
+.clock { text-align: center; grid-row: span 2; align-self: center; }
 .clock .state { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.7; }
 .clock .state[data-state="running"] { color: var(--rlg-accent); }
 .clock .state[data-state="starting"] { color: var(--rlg-warn); }
 .clock .time { font-size: 1.8rem; font-variant-numeric: tabular-nums; font-weight: 700; }
-.reference label { font-size: 0.7rem; opacity: 0.7; display: block; }
+.game-pick label, .reference label { font-size: 0.7rem; opacity: 0.7; display: block; }
+.game-pick select { width: 100%; }
+.game-desc { font-size: 0.72rem; opacity: 0.6; margin-top: 0.15rem; }
 .ref-line { display: flex; gap: 0.4rem; align-items: center; }
 .ref-line select { flex: 1; }
 .ref-flag { font-size: 0.72rem; opacity: 0.7; white-space: nowrap; }

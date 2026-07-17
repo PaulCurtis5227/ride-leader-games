@@ -2,7 +2,9 @@
 
 A [Sauce for Zwift](https://github.com/SauceLLC/sauce4zwift) **mod** — a set of games and tools for Zwift ride leaders.
 
-**First game:** over a configurable duration, the rider with the **lowest average distance from the ride leader** wins.
+Over a configurable duration the mod scores every nearby rider and announces the standings and
+winners in chat. Which metric it scores is chosen from a **game picker** in the Control window; two
+games ship today (see [Games](#games)). All scored values are reported to two decimal places.
 
 ## Install (development)
 
@@ -16,9 +18,21 @@ Then in Sauce: **Settings → Mods**, enable *Ride Leader Games*, and restart Sa
 
 - **Ride Leader Games — Control** — the leader's panel: configuration, live leaderboard, Start/Stop/Reset, chat review queue, a bicycle-joke sender, and diagnostics.
 
+## Games
+
+Pick the active game from the **Game** dropdown at the top of the Control window. The choice is
+persisted, and is locked while a game is running or pre-rolling. Each game brings its own default
+instructions and chat wording; your standings, winner announcements, and CSV export all follow the
+selected game. Scored values are always formatted to **2 decimal places**.
+
+- **Closest to Leader** *(default)* — over the duration, the rider with the **lowest average distance
+  from the ride leader** wins. Requires a ride leader as the scoring reference (see below).
+- **Cadence Challenge** — the rider with the **highest average cadence (RPM)** wins. No ride leader
+  is needed, and coasting (0 RPM) counts against your average, so it rewards *sustained* spinning.
+
 ## How scoring works
 
-Sauce's `nearby` stream gives every rider a signed `gapDistance` (meters) relative to **whoever your Sauce instance is watching**. To score against a chosen **ride leader** regardless of who you're watching, we re-base using the leader's own gap as an offset:
+The **Closest to Leader** game scores against a chosen ride leader. Sauce's `nearby` stream gives every rider a signed `gapDistance` (meters) relative to **whoever your Sauce instance is watching**. To score against a chosen **ride leader** regardless of who you're watching, we re-base using the leader's own gap as an offset:
 
 ```
 score_i = | gapDistance_i − gapDistance_leader |
@@ -29,6 +43,8 @@ score_i = | gapDistance_i − gapDistance_leader |
 - The leader is excluded from their own ranking.
 
 This lets a *different* player run the mod in debug mode and still score against the real ride leader — no need to watch or follow the leader.
+
+The **Cadence Challenge** game reads each rider's cadence directly and needs no reference, so the ride-leader field is ignored while it's selected.
 
 ## Send modes (staged rollout)
 
@@ -55,7 +71,8 @@ When you hit **Start**, the mod runs a short pre-roll *before* the timer begins:
 During the game, enable **Announce periodic standings** to send a "who's leading" update every
 **Standings interval** seconds. When the game ends, the top **Winners to announce** finishers
 (default **5**) are sent. Both the periodic standings and the final results include each rider's
-**average distance** from the leader.
+average score for the selected game (average distance from the leader, average cadence, etc.),
+formatted to 2 decimal places.
 
 Stop or Reset during the pre-roll cancels it cleanly — no start message, no game.
 
@@ -122,7 +139,8 @@ drift, so a mislabeled release can't be cut.
 
 ## Status
 
-`0.1.0` — first game, Silent-mode-first. See the diagnostics export while we work out intersection handling.
+`0.2.0` — game picker with two games (Closest to Leader, Cadence Challenge); all scores reported to
+2 decimal places. Silent-mode-first. See the diagnostics export while we work out intersection handling.
 
 ## License
 

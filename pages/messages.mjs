@@ -20,6 +20,11 @@
  *  - MESSAGES — templates for the auto-generated (non-configurable) messages the engine emits.
  *    Numeric formatting and the chat prefix stay in the engine, so these receive already-formatted
  *    strings and hold nothing but wording.
+ *
+ * These come in one set per game (see games.mjs): the *_INSTRUCTIONS blob + a *_MESSAGES template
+ * object. `DEFAULT_INSTRUCTIONS`/`MESSAGES` are the leader-distance game; `CADENCE_*` the cadence
+ * game. Each *_MESSAGES exposes the same shape (start, rankEntry, standings, winner, noQualifiers)
+ * so the engine can treat them interchangeably via the active game's `messages`.
  */
 
 /*
@@ -50,6 +55,40 @@ export const MESSAGES = {
 
     winner: (name, avgM, restParts) => {
         let msg = `Winner: ${name} — avg ${avgM} from the leader!`;
+        if (restParts && restParts.length) {
+            msg += ` Then ${restParts.join('  ')}`;
+        }
+        return msg;
+    },
+
+    noQualifiers: minSamples => `Game over — no winner winners needed ${minSamples}+ samples.`,
+};
+
+
+/*
+ * Cadence game — highest AVERAGE cadence over the game wins. No ride leader is involved; every
+ * rider is scored on their own cadence. `avgV` params are pre-formatted (e.g. "85rpm").
+ */
+export const CADENCE_INSTRUCTIONS =
+    "Cadence Challenge! The goal is simple: keep your legs spinning. " +
+    "Your score each moment is your cadence (RPM).\n\n" +
+    "The winner is the rider with the highest AVERAGE cadence over the whole game. " +
+    "Coasting counts against you, so keep those pedals turning — spin to win!\n\n" +
+    "Heads up: only about 100 riders can be scored at once, and results can get a little noisy " +
+    "around intersections and road-segment transitions. Have fun and ride safe.";
+
+export const CADENCE_MESSAGES = {
+    start: durationMin =>
+        `Cadence Challenge ON! Highest average cadence over ${durationMin} min wins. ` +
+        `Keep spinning — don't coast!`,
+
+    // One ranking entry, shared by the standings list and the winner runner-ups.
+    rankEntry: (rank, name, avgV) => `${rank}) ${name} ${avgV}`,
+
+    standings: (seconds, parts) => `${seconds} to go. Standings: ${parts.join('  ')}`,
+
+    winner: (name, avgV, restParts) => {
+        let msg = `Winner: ${name} — avg ${avgV}!`;
         if (restParts && restParts.length) {
             msg += ` Then ${restParts.join('  ')}`;
         }

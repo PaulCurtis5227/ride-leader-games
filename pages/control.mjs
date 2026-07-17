@@ -13,7 +13,7 @@
  */
 import * as Common from '/pages/src/common.mjs';
 import {RideLeaderGame, SEND_MODES, STATES, chunkMessage, instructionMessages} from './engine.mjs';
-import {DEFAULT_INSTRUCTIONS} from './messages.mjs';
+import {GAMES, getGame, DEFAULT_GAME_KEY} from './games.mjs';
 import {getSauceStreams} from './s4z-streams.mjs';
 import {JokeDeck} from './jokedeck.mjs';
 import {JOKES} from './jokes-data.mjs';
@@ -33,6 +33,7 @@ function clockNow() {
 
 const settings = Common.settingsStore;
 const SETTING_DEFAULTS = {
+    gameKey: DEFAULT_GAME_KEY,
     duration: 20,
     sendMode: SEND_MODES.SILENT,
     chatPrefix: '\u{1F3C1}',
@@ -42,7 +43,8 @@ const SETTING_DEFAULTS = {
     anomalyThresholdM: 150,
     leaderId: null,
     sendInstructions: true,
-    instructions: DEFAULT_INSTRUCTIONS,
+    // instructions default is per-game (see activeInstructions()); an unset value falls back to the
+    // selected game's defaultInstructions rather than a single static blob.
     startDelay: 15,          // seconds to wait after instructions before the start message/timer
     announceStart: true,
     announcePeriodic: false,
@@ -66,6 +68,7 @@ let startGen = 0;           // bumped by Stop/Reset to cancel an in-flight pre-r
 let startPhase = '';        // '' | 'instructions' | 'countdown' (drives the clock display)
 let preRollGoAt = 0;        // clockNow() ms when the start message fires (countdown target)
 let lastNearbyCount = 0;
+let lastEntries = [];       // most recent nearby snapshot (for refreshing UI on config changes)
 let wsConnected = false;   // connected to Sauce's web server (the data pipe)
 let lastDataTs = 0;        // wall-clock ms of the last nearby tick (ground truth for "receiving data")
 let gameLink = false;      // Zwift game connection (command channel) — only needed to SEND chat
@@ -89,6 +92,31 @@ function get(key) {
     return v === undefined ? SETTING_DEFAULTS[key] : v;
 }
 
+// The selected game definition (scoring/formatting/messages/instructions).
+function activeGame() {
+    return getGame(get('gameKey'));
+}
+
+// Instructions to send at Start: the user's saved blob if they've customized it, otherwise the
+// selected game's default. (get('instructions') is intentionally not used — the default is dynamic.)
+function activeInstructions() {
+    const v = settings.get('instructions');
+    return v === undefined ? activeGame().defaultInstructions : v;
+}
+
+// When the leader hasn't customized the instructions, mirror the active game's default into the
+// visible textarea (display only — no store write) so they see exactly what Start will send. A
+// customized (persisted) blob is left untouched and applies to whichever game is selected.
+function showDefaultInstructionsIfUnset() {
+    if (settings.get('instructions') !== undefined) {
+        return;
+    }
+    const ta = document.querySelector('#configForm [name="instructions"]');
+    if (ta) {
+        ta.value = activeGame().defaultInstructions;
+    }
+}
+
 /*
  * Scale the whole UI by setting the root font-size multiplier (control.css bases every rem on
  * `calc(16px * var(--rlg-font-scale))`). Clamped so a stray setting can't make the window unusable.
@@ -105,6 +133,7 @@ function applyFontScale(scaleOverride) {
 
 function readConfigIntoEngine() {
     game.setConfig({
+        game: activeGame(),
         durationMin: Number(get('duration')) || 20,
         minSamples: Number(get('minSamples')) || 1,
         anomalyThresholdM: Number(get('anomalyThresholdM')) || 150,
@@ -144,12 +173,13 @@ function renderClock() {
 
 function renderBoard() {
     const rows = game.standings();
+    const fmt = activeGame().format;
     els.boardNote.textContent = rows.length ? `${rows.length} riders` : '';
     els.leaderboard.innerHTML = rows.map((r, i) => `
         <li class="${r.qualified ? '' : 'unqualified'}">
             <span class="rank">${i + 1}</span>
             <span class="name">${Common.sanitize(r.name)}</span>
-            <span class="avg">${r.avg.toFixed(2)}m</span>
+            <span class="avg">${fmt(r.avg)}</span>
             <span class="samples" title="scoring samples${r.carriedTicks ? ` · ${r.carriedTicks} carried` : ''}">${r.samples}${r.carriedTicks ? '*' : ''}</span>
         </li>`).join('');
 }
@@ -427,7 +457,7 @@ async function onStart() {
     syncButtons();
     renderClock();
     if (get('sendInstructions')) {
-        for (const block of instructionMessages(get('instructions'))) {
+        for (const block of instructionMessages(activeInstructions())) {
             enqueueMessage(block);
         }
         await whenQueueIdle();          // let instructions actually go out (Auto); instant otherwise
@@ -508,6 +538,10 @@ function syncButtons() {
     const running = game.state === STATES.RUNNING;
     els.btnStart.disabled = running || starting;
     els.btnStop.disabled = !running && !starting;
+    // Switching games mid-run would reinterpret already-accumulated samples; lock it until Reset.
+    if (els.gamePicker) {
+        els.gamePicker.disabled = running || starting;
+    }
 }
 
 
@@ -515,6 +549,7 @@ function syncButtons() {
 
 function onNearby(entries) {
     lastNearbyCount = entries.length;
+    lastEntries = entries;
     lastDataTs = Date.now();
     updateLeaderPicker(entries);
     updateReference(entries);
@@ -530,7 +565,39 @@ function onNearby(entries) {
     renderDiag();
 }
 
+/*
+ * Populate the game dropdown from the registry and wire selection. Switching games persists the
+ * new key, re-reads config (so the engine scores with the new game), swaps the default instructions
+ * (if uncustomized), and refreshes the board formatter + reference note. Disabled mid-game by
+ * syncButtons() so accumulated samples aren't reinterpreted under a different game.
+ */
+function buildGamePicker() {
+    const cur = get('gameKey');
+    els.gamePicker.innerHTML = GAMES
+        .map(g => `<option value="${g.key}">${Common.sanitize(g.name)}</option>`)
+        .join('');
+    els.gamePicker.value = getGame(cur).key;   // normalize an unknown/missing key to the default
+    els.gameDesc.textContent = activeGame().description;
+
+    els.gamePicker.addEventListener('change', () => {
+        settings.set('gameKey', els.gamePicker.value);
+        readConfigIntoEngine();
+        els.gameDesc.textContent = activeGame().description;
+        showDefaultInstructionsIfUnset();
+        updateReference(lastEntries);
+        renderBoard();
+    });
+}
+
 function updateReference(entries) {
+    // Games that don't score relative to a leader (e.g. cadence) don't use the reference picker.
+    if (!activeGame().needsReference) {
+        els.leaderFlag.textContent = 'not used for this game';
+        els.leaderFlag.className = 'ref-flag';
+        els.ridersNote.textContent = `${lastNearbyCount} riders nearby` +
+            (lastNearbyCount >= (game.config.maxRiders || 100) ? ' (list saturated)' : '');
+        return;
+    }
     const leaderId = game.config.leaderId;
     if (leaderId == null) {
         const watched = entries.find(e => e.watching);
@@ -641,6 +708,8 @@ export async function main() {
         sendReady: document.querySelector('#sendReady'),
         clock: document.querySelector('#clock'),
         gameState: document.querySelector('#gameState'),
+        gamePicker: document.querySelector('#gamePicker'),
+        gameDesc: document.querySelector('#gameDesc'),
         leaderPicker: document.querySelector('#leaderPicker'),
         leaderFlag: document.querySelector('#leaderFlag'),
         ridersNote: document.querySelector('#ridersNote'),
@@ -683,15 +752,10 @@ export async function main() {
     }
 
     // initSettingsForm only fills a field when the store holds a defined value, so an unsaved
-    // instructions setting leaves the textarea blank. Show the source default (display only — no
-    // store write) so the leader sees exactly what Start will send; get('instructions') already
-    // falls back to the same default via SETTING_DEFAULTS.
-    if (settings.get('instructions') === undefined) {
-        const ta = document.querySelector('#configForm [name="instructions"]');
-        if (ta) {
-            ta.value = DEFAULT_INSTRUCTIONS;
-        }
-    }
+    // instructions setting leaves the textarea blank. Show the active game's default (display only)
+    // so the leader sees exactly what Start will send.
+    buildGamePicker();
+    showDefaultInstructionsIfUnset();
 
     // React to config changes (mode badge, prefix, diagnostics visibility, engine params).
     settings.addEventListener('set', () => {
