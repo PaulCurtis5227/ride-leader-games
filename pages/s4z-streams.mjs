@@ -1,4 +1,13 @@
 /*
+ * Ride Leader Games — a Sauce for Zwift mod.
+ * Copyright (C) 2026 Paul Curtis
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * This program is free software: you can redistribute it and/or modify it under the terms of the
+ * GNU General Public License as published by the Free Software Foundation, either version 3 of the
+ * License, or (at your option) any later version. This program is distributed WITHOUT ANY WARRANTY;
+ * see the GNU General Public License <https://www.gnu.org/licenses/> for details.
+ *
  * s4z-streams.mjs — a drop-in Sauce-for-Zwift stream service (record + replay + live).
  * ============================================================================
  * COPY THIS FILE into your own mod. It is a zero-dependency polyfill/adapter.

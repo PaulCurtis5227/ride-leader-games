@@ -62,7 +62,7 @@ Stop or Reset during the pre-roll cancels it cleanly — no start message, no ga
 ## Known limitations / diagnostics
 
 - Sauce's `nearby` list is capped at **100 riders**; larger events will drop riders from the list.
-- `gapDistance` can behave oddly around **intersections** (road-position ambiguity).
+- Around **intersections**, `nearby` won't list riders on the *other side* of the intersection — they drop out of the list until the group is back together on a shared stretch of road.
 - **Interim handling:** if a tracked rider disappears from `nearby`, we keep scoring them using their last known gap (carry-forward).
 - The Control window logs carry-forwards, list saturation, leader-visibility gaps, and large per-tick `gapDistance` jumps, and can **export** the full session (JSON + CSV) for offline analysis of intersection behavior.
 
@@ -76,6 +76,44 @@ This mod consumes its `nearby` data through the shared [`s4z-streams.mjs`](pages
 
 This is the loop for tuning intersection handling (anomaly thresholds, carry-forward) offline.
 
+## Releasing
+
+The version lives in `package.json` and is mirrored into `manifest.json` (Sauce shows it as
+`v<version>` in **Settings → Mods**). Never edit `manifest.json`'s version by hand — bump both
+together with `npm version`, which also runs the tests, commits, tags, and builds the zip:
+
+```
+# 1. commit all your work first (npm version requires a clean tree)
+npm version patch          # or minor / major
+#   → runs tests, bumps package.json + manifest.json to the same version,
+#     makes one commit tagged vX.Y.Z, then builds dist/ride-leader-games-vX.Y.Z.zip
+git push --follow-tags     # push the commit and tag to GitHub
+npm run release            # attach the zip to a GitHub Release (see below)
+```
+
+- **Artifact:** `npm run package` (also run automatically by `npm version`) produces
+  `dist/ride-leader-games-v<version>.zip` — a `git archive` of exactly the committed files
+  (so `CLAUDE.md` and anything untracked/gitignored are excluded), prefixed with a
+  `ride-leader-games/` folder so it unzips ready to drop into `SauceMods`.
+- **GitHub Release:** `npm run release` uses the [`gh` CLI](https://cli.github.com) if it is
+  installed and authenticated (`gh release create v<version> … --generate-notes`). If `gh` is not
+  installed it prints the manual steps: push the tag, open the repo's **Releases → Draft a new
+  release** page, and upload the zip from `dist/`.
+
+A test (`test/version.test.mjs`) fails the build if `manifest.json` and `package.json` versions ever
+drift, so a mislabeled release can't be cut.
+
 ## Status
 
 `0.1.0` — first game, Silent-mode-first. See the diagnostics export while we work out intersection handling.
+
+## License
+
+Copyright (C) 2026 Paul Curtis.
+
+Ride Leader Games is free software, released under the **GNU General Public License v3.0 or later**
+(`GPL-3.0-or-later`). See the [LICENSE](LICENSE) file for the full text. Each source file carries an
+`SPDX-License-Identifier: GPL-3.0-or-later` header.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.

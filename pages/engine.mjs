@@ -1,4 +1,13 @@
 /*
+ * Ride Leader Games — a Sauce for Zwift mod.
+ * Copyright (C) 2026 Paul Curtis
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * This program is free software: you can redistribute it and/or modify it under the terms of the
+ * GNU General Public License as published by the Free Software Foundation, either version 3 of the
+ * License, or (at your option) any later version. This program is distributed WITHOUT ANY WARRANTY;
+ * see the GNU General Public License <https://www.gnu.org/licenses/> for details.
+ *
  * Ride Leader Games — game engine (framework-agnostic, no DOM).
  *
  * Scoring: each rider's score is their road distance from the ride leader, derived from
@@ -19,7 +28,7 @@ export const DEFAULT_CONFIG = {
     durationMin: 20,          // game length in minutes
     leaderId: null,           // configured ride-leader athleteId, or null => use watched rider
     minSamples: 5,            // scoring samples required to qualify for the final ranking
-    anomalyThresholdM: 150,   // per-tick |gapDistance| jump that flags a possible intersection anomaly
+    anomalyThresholdM: 150,   // per-tick |gapDistance| jump that flags a possible data anomaly (e.g. a rider re-appearing far away after dropping out of the list at an intersection)
     maxRiders: 100,           // Sauce nearby cap; used to detect list saturation
     chatPrefix: '\u{1F3C1}',  // 🏁
 };
@@ -165,7 +174,9 @@ export class RideLeaderGame {
         }
 
         // Carry-forward: riders we were tracking that dropped out of this tick's list keep
-        // scoring against their last known gap (interim behavior around intersections/cap).
+        // scoring against their last known gap. Riders drop out at intersections (the far side of
+        // the intersection isn't listed) or when the list saturates at the cap; this is interim
+        // behavior until we know how we want to handle those gaps.
         for (const rec of this.athletes.values()) {
             if (present.has(rec.athleteId) || rec.athleteId === effectiveLeaderId || rec.lastGapDistance == null) {
                 continue;
