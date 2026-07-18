@@ -82,9 +82,12 @@ section, details {
     padding: 0.2rem 0.1rem;
 }
 .rlg-header .title { font-weight: 700; font-size: 1.05rem; }
+.rlg-header .title .version { font-weight: 400; font-size: 0.72rem; opacity: 0.6; vertical-align: middle; }
+.rlg-header .byline { font-size: 0.68rem; opacity: 0.55; margin-top: 0.05rem; }
 
-.conn { display: flex; align-items: center; gap: 0.35rem; opacity: 0.8; font-size: 0.8rem; }
-.conn .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--rlg-bad); }
+/* Data connection: a red/green dot; details are in its title (hover) tooltip. */
+.conn { display: flex; align-items: center; cursor: help; }
+.conn .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--rlg-bad); }
 .conn.connected .dot { background: var(--rlg-accent); }
 
 /* status block */

@@ -645,6 +645,30 @@ function nameOf(e) {
 }
 
 
+// ---------------------------------------------------------------- version badge
+
+/*
+ * Show the running version in the header. Read it from Sauce's own mod registry
+ * (getAvailableMods → manifest.version) so it always matches the installed manifest and
+ * never needs hardcoding. Silently leaves the badge blank if the RPC is unavailable.
+ */
+async function showVersion() {
+    if (!els.appVersion) {
+        return;
+    }
+    try {
+        const mods = await Common.rpc.getAvailableMods();
+        const me = mods && mods.find(m => m.id === 'ride-leader-games');
+        const v = me && me.manifest && me.manifest.version;
+        if (v) {
+            els.appVersion.textContent = `v${v}`;
+        }
+    } catch (e) {
+        // Best-effort only; the version badge is cosmetic.
+    }
+}
+
+
 // ---------------------------------------------------------------- connection status
 
 /*
@@ -668,7 +692,8 @@ function renderConn() {
         txt = 'not connected to Sauce';
     }
     els.conn.classList.toggle('connected', connected);
-    els.conn.querySelector('.txt').textContent = txt;
+    // The header dot is compact; its full status lives in the hover tooltip.
+    els.conn.title = txt;
 
     // Chat sending needs the game connection (independent of the data feed above).
     // Sending chat rides the same Zwift command channel as camera control, so it fails
@@ -738,6 +763,7 @@ function stamp() {
 export async function main() {
     els = {
         conn: document.querySelector('#conn'),
+        appVersion: document.querySelector('#appVersion'),
         sendReady: document.querySelector('#sendReady'),
         clock: document.querySelector('#clock'),
         gameState: document.querySelector('#gameState'),
@@ -875,6 +901,8 @@ export async function main() {
         game.rawSamples.length = 0;
         renderDiag();
     });
+
+    showVersion();
 
     // Live data through the stream service (live now, native later; replay for dev).
     streams.subscribe('nearby', onNearby);
