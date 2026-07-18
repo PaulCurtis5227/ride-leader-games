@@ -72,6 +72,7 @@ let lastEntries = [];       // most recent nearby snapshot (for refreshing UI on
 let wsConnected = false;   // connected to Sauce's web server (the data pipe)
 let lastDataTs = 0;        // wall-clock ms of the last nearby tick (ground truth for "receiving data")
 let gameLink = false;      // Zwift game connection (command channel) — only needed to SEND chat
+let gameConnState = '';    // raw status.state: '' | 'disabled' | 'init' | 'waiting' | 'connected' | 'disconnected' | 'error'
 
 // ---- send pipeline (chunk -> throttled queue -> send-mode gate) ----
 const sendQueue = [];
@@ -670,11 +671,43 @@ function renderConn() {
     els.conn.querySelector('.txt').textContent = txt;
 
     // Chat sending needs the game connection (independent of the data feed above).
+    // Sending chat rides the same Zwift command channel as camera control, so it fails
+    // unless the game has actually connected to Sauce (status.connected). The status.state
+    // distinguishes *why* it's off so we can give an actionable hint:
+    //   'disabled' → Game Connection isn't enabled in Sauce (Settings ▸ General; restart required).
+    //   'waiting'  → enabled but the game never dialed back — almost always the Zwift Companion app
+    //                holding the single companion slot (it was running before Sauce registered).
+    // Note: when 'disabled' the gameConnection emitter never fires 'status'; we learn this state
+    // from the initial getGameConnectionStatus() RPC at startup (see main()).
     if (els.sendReady) {
         const silent = get('sendMode') === SEND_MODES.SILENT;
-        els.sendReady.textContent = gameLink ? 'chat link ✓'
-            : silent ? 'chat off (Silent)'
-            : 'chat link off — enable Game Connection to send';
+        let txt, title = '';
+        if (gameLink) {
+            txt = 'chat link ✓';
+        } else if (silent) {
+            txt = 'chat off (Silent)';
+        } else if (gameConnState === 'waiting') {
+            txt = 'chat link waiting — close the Zwift Companion app to connect';
+            title = 'Zwift allows only one companion connection. If the Companion app is open ' +
+                'it holds that slot and the game never connects to Sauce. Just close the ' +
+                'Companion app — the link connects on its own within a few seconds, no Sauce ' +
+                'restart needed.';
+        } else if (gameConnState === 'disabled') {
+            txt = 'chat link off — enable Game Connection in Sauce Settings ▸ General (restart required)';
+            title = 'Game Connection is turned off in Sauce, so chat cannot be sent.\n\n' +
+                'To enable it:\n' +
+                '1. Open the Sauce window and click the gear/Settings icon.\n' +
+                '2. Under General, tick "Game Connection".\n' +
+                '3. Restart Sauce (this setting requires a restart).\n\n' +
+                'Note: Zwift allows only one companion connection, so if you use the Zwift ' +
+                'Companion app’s Game mode, close it first.';
+        } else if (gameConnState === 'error') {
+            txt = 'chat link error — check Sauce Game Connection';
+        } else {
+            txt = 'chat link off — enable Game Connection to send';
+        }
+        els.sendReady.textContent = txt;
+        els.sendReady.title = title;
         els.sendReady.classList.toggle('warn', !gameLink && !silent);
         els.sendReady.classList.toggle('ok', gameLink);
     }
@@ -853,12 +886,16 @@ export async function main() {
         renderConn();
     });
     // Chat sending needs the separate Zwift game connection — track it independently.
-    Common.subscribe('status', s => { gameLink = !!(s && s.connected); renderConn(); },
-        {source: 'gameConnection', persistent: true});
+    Common.subscribe('status', s => {
+        gameLink = !!(s && s.connected);
+        gameConnState = (s && s.state) || '';
+        renderConn();
+    }, {source: 'gameConnection', persistent: true});
     try {
         const gc = await Common.rpc.getGameConnectionStatus();
         wsConnected = true;                    // the RPC resolving means Sauce is reachable
         gameLink = !!(gc && gc.connected);
+        gameConnState = (gc && gc.state) || '';
     } catch (e) {
         wsConnected = false;
     }
