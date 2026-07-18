@@ -1,0 +1,20 @@
+{
+    "_note": "Metadata for the Sauce4Zwift Official Mod Store listing (https://mods.sauce.llc). Consumed by `npm run submit-mod-store`. The `id` MUST stay stable forever — it is what the store uses to update this mod's entry rather than create a duplicate; never change or regenerate it once listed. `name`/`version` come from manifest.json; `hash`/`size`/`url` are computed/filled at submit time. Everything below is yours to edit.",
+    "id": "76f26fd4-d010-40d5-970e-5899d947db41",
+    "created": 1784389346370,
+    "description": "Games and tools for Zwift ride leaders.\n\n * Score every nearby rider over a set duration and announce the standings and winners in chat.\n * Pick the game from a dropdown: Closest to Leader (lowest average distance from the ride leader) or Cadence Challenge (highest average RPM).\n * Staged chat sending (Silent / Review / Auto) with word-boundary chunking and paced delivery.\n * A bicycle-joke sender to entertain the group between efforts.\n\nSending chat requires Sauce's Game Connection to be enabled.",
+    "tags": [
+        "ride-leader",
+        "games",
+        "leaderboard",
+        "chat",
+        "cadence"
+    ],
+    "homeURL": "https://github.com/PaulCurtis5227/ride-leader-games",
+    "logoURL": "https://github.com/PaulCurtis5227/ride-leader-games/raw/master/images/RLG.png",
+    "authorName": "Paul Curtis",
+    "authorURL": "https://github.com/PaulCurtis5227",
+    "authorAvatarURL": "https://github.com/PaulCurtis5227.png",
+    "minVersion": "",
+    "releaseNotes": ""
+}

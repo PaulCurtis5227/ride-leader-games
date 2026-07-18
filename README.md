@@ -199,6 +199,44 @@ npm run release            # attach the zip to a GitHub Release (see below)
 A test (`test/version.test.mjs`) fails the build if `manifest.json` and `package.json` versions ever
 drift, so a mislabeled release can't be cut.
 
+## Listing in the Sauce Mod Store
+
+The [Official Sauce Mod Store](https://mods.sauce.llc) lists mods from a single `directory.json` in
+[`SauceLLC/sauce4zwift-mod-store`](https://github.com/SauceLLC/sauce4zwift-mod-store); listing/updating
+is a pull request against that file. The store's web release tool uploads your zip to Sauce's asset
+host and hands you an entry to paste in by hand. `npm run submit-mod-store` automates the whole flow:
+
+```
+npm run submit-mod-store                 # DRY RUN (default): build + print the entry, no network writes
+npm run submit-mod-store -- --upload-only  # upload the zip to Sauce's asset host, print the finished entry
+npm run submit-mod-store -- --submit       # upload the zip AND open the store PR via the gh CLI
+```
+
+Extra flags: `-- --notes "…"` (release notes for this version) and `-- --branch NAME` (PR branch on
+your fork).
+
+What it does, mirroring the manual steps:
+
+1. Computes the release zip's SHA-256 and size (from `dist/ride-leader-games-vX.Y.Z.zip`, so run
+   `npm run package`/`npm version` first).
+2. On `--upload-only`/`--submit`, `PUT`s the zip to `https://mod-api.sauce.llc/edit/release/asset`
+   (the same anonymous call the web tool makes) and uses the hosted asset URL it returns.
+3. Builds the `directory.json` entry from `manifest.json` + **`mod-store.json`** (the store metadata:
+   a **stable `id`** — never change it once listed — plus description, tags, URLs, author, logo).
+4. On `--submit`, forks the store repo, edits `directory.json` on a branch, and opens the PR with
+   [`gh`](https://cli.github.com). (On this machine `gh` lives outside the default PATH — see
+   `CLAUDE.md`.)
+
+The **default dry run touches nothing external** — it only reads the public `directory.json` and
+prints the entry that *would* be submitted, so you can eyeball it first. Uploading and opening a PR
+happen only with the explicit flags.
+
+**Logo:** `mod-store.json`'s `logoURL` points at `images/RLG.png` (1024×1024, a square badge). The
+store wants a **square (1:1) image, 384–1500 px**; PNG/WebP work well served from GitHub raw. (Avoid
+SVG here — GitHub's raw host sends `.svg` as `text/plain` with `nosniff`, so it often won't render in
+an `<img>`.) The logo is served straight from your pushed repo, so commit and push it before you
+submit (the URL resolves against the pushed repo).
+
 ## Status
 
 `0.2.0` — game picker with two games (Closest to Leader, Cadence Challenge); all scores reported to

@@ -12,6 +12,7 @@
         "install-release": "node scripts/install-release.mjs",
         "package": "node scripts/package.mjs",
         "release": "node scripts/release-github.mjs",
+        "submit-mod-store": "node scripts/submit-mod-store.mjs",
         "preversion": "npm test",
         "version": "node scripts/sync-version.mjs",
         "postversion": "node scripts/package.mjs"
