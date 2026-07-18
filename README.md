@@ -184,8 +184,19 @@ npm version patch          # or minor / major
 #   → runs tests, bumps package.json + manifest.json to the same version,
 #     makes one commit tagged vX.Y.Z, then builds dist/ride-leader-games-vX.Y.Z.zip
 git push --follow-tags     # push the commit and tag to GitHub
-npm run release            # attach the zip to a GitHub Release (see below)
+npm run release            # scans the shipped files, then attaches the zip to a GitHub Release
 ```
+
+- **Pre-release scan:** `npm run release` first runs `npm run scan` automatically (npm's
+  `prerelease` step). It scans every file that ships in the zip (all git-tracked files) for leaked
+  secrets/keys, this machine's own absolute paths (e.g. `C:\Users\<you>\…`), personal info, and any
+  source file missing its copyright/SPDX header — and **aborts the release on a blocking finding**
+  so private data can't escape. Run it standalone any time with `npm run scan`. Flags:
+  `--since <ref>` (only files changed since a ref), `--staged`, `--warn-only` (report but never
+  fail), or pass explicit paths. A verified false positive can be silenced by adding a comment
+  containing `release-scan-allow` on that line. Detection logic lives in
+  `scripts/release-scan.mjs` (pure, unit-tested in `test/release-scan.mjs`); the CLI is
+  `scripts/scan-release.mjs`.
 
 - **Artifact:** `npm run package` (also run automatically by `npm version`) produces
   `dist/ride-leader-games-v<version>.zip` — a `git archive` of exactly the committed files

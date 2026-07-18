@@ -7,10 +7,12 @@
     "description": "Dev/release tooling for the Ride Leader Games Sauce4Zwift mod (the mod itself is plain HTML/JS under pages/).",
     "scripts": {
         "test": "node --test",
+        "scan": "node scripts/scan-release.mjs",
         "dev-link": "node scripts/dev-link.mjs",
         "build": "node scripts/build.mjs",
         "install-release": "node scripts/install-release.mjs",
         "package": "node scripts/package.mjs",
+        "prerelease": "node scripts/scan-release.mjs",
         "release": "node scripts/release-github.mjs",
         "submit-mod-store": "node scripts/submit-mod-store.mjs",
         "preversion": "npm test",
