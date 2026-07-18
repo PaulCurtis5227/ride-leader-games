@@ -6,17 +6,66 @@ Over a configurable duration the mod scores every nearby rider and announces the
 winners in chat. Which metric it scores is chosen from a **game picker** in the Control window; two
 games ship today (see [Games](#games)). All scored values are reported to two decimal places.
 
-## Install (development)
+> [!IMPORTANT]
+> **Sending chat requires Sauce's Game Connection to be enabled — which effectively means you can't
+> also run the Zwift Companion app.** Announcing standings, winners, and jokes in-game rides the same
+> command channel as Sauce's camera control, so it only works when **Game Connection** is turned on
+> in Sauce (**Settings ▸ General**, restart required). Zwift allows just **one** companion connection
+> per rider, so if the **Zwift Companion app** is running it holds that slot and Sauce can never
+> connect — close Companion before starting Sauce. Reading data (the leaderboard and standings) works
+> without it; only outgoing chat needs it. See [Sending chat needs Sauce's Game
+> Connection](#sending-chat-needs-sauces-game-connection) for the full details.
 
-This repo lives in Sauce's unpacked mods folder so Sauce auto-loads it:
+## Install
+
+Sauce loads mods as unpacked folders inside its **SauceMods** directory. Most users want a released
+version (below); developers hacking on the mod can symlink the repo instead.
+
+### Install a released version (recommended)
+
+1. **Download the zip.** Go to the repo's [**Releases**
+   page](https://github.com/PaulCurtis5227/ride-leader-games/releases) and, under the latest release,
+   download `ride-leader-games-vX.Y.Z.zip` from its **Assets**.
+2. **Find your SauceMods folder.** In Sauce, open **Settings → Mods** — there's an **Open mods
+   folder** button (or the folder path is shown). It is typically:
+   ```
+   C:\Users\<you>\Documents\SauceMods\
+   ```
+   (on some setups Documents is redirected into OneDrive, e.g.
+   `C:\Users\<you>\OneDrive\Documents\SauceMods\`). Create the `SauceMods` folder if it doesn't exist.
+3. **Unzip into it.** Extract the zip directly into `SauceMods\`. The zip already contains a
+   top-level `ride-leader-games/` folder, so you should end up with:
+   ```
+   C:\Users\<you>\Documents\SauceMods\ride-leader-games\manifest.json
+   ```
+   (If your unzip tool created a doubled `ride-leader-games\ride-leader-games\` folder, move the inner
+   one up a level so `manifest.json` sits directly under `ride-leader-games\`.)
+4. **Enable it.** In Sauce open **Settings → Mods**, enable *Ride Leader Games*, and **restart
+   Sauce**.
+5. **Upgrading later:** delete the old `SauceMods\ride-leader-games\` folder, unzip the new release
+   in its place, and restart Sauce.
+
+### Install for development
+
+To hack on the mod, clone this repo somewhere outside SauceMods and let the included script create a
+directory junction from SauceMods into your working copy (so edits are picked up live):
 
 ```
-C:\Users\<you>\Documents\SauceMods\ride-leader-games\
+git clone https://github.com/PaulCurtis5227/ride-leader-games.git
+cd ride-leader-games
+npm run dev-link      # junctions SauceMods\ride-leader-games → this repo
 ```
 
-Then in Sauce: **Settings → Mods**, enable *Ride Leader Games*, and restart Sauce. One window becomes available:
+Then in Sauce: **Settings → Mods**, enable *Ride Leader Games*, and restart Sauce.
+
+### After installing
+
+One window becomes available:
 
 - **Ride Leader Games — Control** — the leader's panel: configuration, live leaderboard, Start/Stop/Reset, chat review queue, a bicycle-joke sender, and diagnostics.
+
+Mod windows pick up new HTML/JS/CSS on **reopen**; new mods or `manifest.json` changes need a **full
+Sauce restart**.
 
 ## Games
 
@@ -55,6 +104,19 @@ All outgoing chat is generated centrally and routed through a single **send mode
 - **Auto** — messages are sent immediately as global in-game chat.
 
 Because a non-ride-leader Zwift account has limited chat, every message is split into a configurable **max length** (word-boundary chunks with `(i/n)` markers) and drained through a queue with a configurable **delay** between messages. Write one long message; the mod breaks it up and paces the pieces. In **Silent** mode you still see every chunk in the Messages pane exactly as it *would* be sent — nothing reaches Zwift.
+
+### Sending chat needs Sauce's Game Connection
+
+Actually sending chat into Zwift (Review → Send, Auto, and the joke sender) rides the same Zwift command channel as camera control, so it requires Sauce's **Game Connection** to be enabled *and* connected. Reading data (the leaderboard, standings, `nearby`) does **not** need it — only outgoing chat does. The **Messages** pane shows a live chat-link indicator next to the mode badge:
+
+- **chat link ✓** — connected; chat will send.
+- **chat off (Silent)** — you're in Silent mode; nothing is sent by design.
+- **chat link off — enable Game Connection in Sauce Settings ▸ General (restart required)** — Game Connection is turned off in Sauce (see below).
+- **chat link waiting — close Zwift Companion app, then restart Sauce** — enabled, but the game hasn't connected (see below).
+
+**Enabling Game Connection:** open the Sauce window, click the **gear/Settings** icon, and under **General** tick **Game Connection**, then **restart Sauce** (this setting requires a restart). Hover the chat-link indicator for the same steps inline.
+
+**The Companion-app gotcha:** Zwift allows only **one** companion connection per rider. If the **Zwift Companion app** is already running when Sauce registers itself, the Companion app holds that single slot and the game never dials back to Sauce — so the Game Connection sits in the **waiting** state (connected = false) forever and chat silently fails. Fix: **close the Zwift Companion app, then restart Sauce** (or toggle Game Connection off/on). Starting Sauce *before* the Companion app avoids it. The chat-link indicator calls this case out explicitly so you don't have to guess.
 
 ## Game communication flow
 
