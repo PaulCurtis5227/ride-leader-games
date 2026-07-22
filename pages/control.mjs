@@ -100,22 +100,10 @@ function activeGame() {
 
 // Instructions to send at Start: the user's saved blob if they've customized it, otherwise the
 // selected game's default. (get('instructions') is intentionally not used — the default is dynamic.)
+// The Instructions editor itself lives in the settings window (settings.mjs); this only reads it.
 function activeInstructions() {
     const v = settings.get('instructions');
     return v === undefined ? activeGame().defaultInstructions : v;
-}
-
-// When the leader hasn't customized the instructions, mirror the active game's default into the
-// visible textarea (display only — no store write) so they see exactly what Start will send. A
-// customized (persisted) blob is left untouched and applies to whichever game is selected.
-function showDefaultInstructionsIfUnset() {
-    if (settings.get('instructions') !== undefined) {
-        return;
-    }
-    const ta = document.querySelector('#configForm [name="instructions"]');
-    if (ta) {
-        ta.value = activeGame().defaultInstructions;
-    }
 }
 
 /*
@@ -584,7 +572,8 @@ function buildGamePicker() {
         settings.set('gameKey', els.gamePicker.value);
         readConfigIntoEngine();
         els.gameDesc.textContent = activeGame().description;
-        showDefaultInstructionsIfUnset();
+        // The settings window reacts to this gameKey change (via the store's 'set' event) to
+        // refresh the shown default instructions; nothing to update in the control window.
         updateReference(lastEntries);
         renderBoard();
     });
@@ -790,7 +779,6 @@ export async function main() {
         diagSection: document.querySelector('#diagSection'),
         diagNote: document.querySelector('#diagNote'),
         diagLog: document.querySelector('#diagLog'),
-        instructionsNote: document.querySelector('#instructionsNote'),
     };
 
     game = new RideLeaderGame({
@@ -800,23 +788,13 @@ export async function main() {
     readConfigIntoEngine();
 
     Common.initInteractionListeners();
-    await Common.initSettingsForm('#configForm')();
     applyFontScale();
-
-    // Live font-scale feedback while dragging (the store commits on 'change'; the 'set' listener
-    // then re-applies the clamped, persisted value).
-    const fontScaleEl = document.querySelector('#configForm [name="fontScale"]');
-    if (fontScaleEl) {
-        fontScaleEl.addEventListener('input', () => applyFontScale(fontScaleEl.value));
-    }
-
-    // initSettingsForm only fills a field when the store holds a defined value, so an unsaved
-    // instructions setting leaves the textarea blank. Show the active game's default (display only)
-    // so the leader sees exactly what Start will send.
     buildGamePicker();
-    showDefaultInstructionsIfUnset();
 
-    // React to config changes (mode badge, prefix, diagnostics visibility, engine params).
+    // Config is edited in the settings window (settings.html, opened from the titlebar gear). Its
+    // writes reach this window as the settings store's 'set' event (cross-window via the localStorage
+    // `storage` event), so we just re-read config and re-render here — mode badge, prefix, font
+    // scale, diagnostics visibility, and engine params all update live.
     settings.addEventListener('set', () => {
         readConfigIntoEngine();
         applyFontScale();
@@ -836,24 +814,6 @@ export async function main() {
     syncJokeButtons();
     els.btnSendJoke.addEventListener('click', onSendJoke);
     els.btnSkipJoke.addEventListener('click', nextJoke);
-
-    // Load instructions from a text/markdown file into the (persisted) instructions field.
-    const instructionsFile = document.querySelector('#instructionsFile');
-    document.querySelector('#btnLoadInstructions').addEventListener('click', () => instructionsFile.click());
-    instructionsFile.addEventListener('change', async () => {
-        const file = instructionsFile.files && instructionsFile.files[0];
-        if (!file) {
-            return;
-        }
-        const text = await file.text();
-        settings.set('instructions', text);   // fires the 'set' listener -> re-reads config
-        const ta = document.querySelector('#configForm [name="instructions"]');
-        if (ta) {
-            ta.value = text;                   // keep the visible textarea in sync (programmatic set)
-        }
-        els.instructionsNote.textContent = `loaded ${file.name} (${instructionMessages(text).length} msg)`;
-        instructionsFile.value = '';           // allow re-loading the same file later
-    });
 
     // Ride-leader picker (managed manually; persisted into the same settings store).
     els.leaderPicker.addEventListener('change', () => {

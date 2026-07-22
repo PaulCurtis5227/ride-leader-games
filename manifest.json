@@ -12,7 +12,8 @@
             "id": "rlg-control",
             "name": "Ride Leader Games — Control",
             "description": "Leader control panel: config, live leaderboard, game controls, chat review queue, diagnostics",
-            "frame": true,
+            "overlay": true,
+            "frame": false,
             "default_bounds": {
                 "width": 560,
                 "height": 820,

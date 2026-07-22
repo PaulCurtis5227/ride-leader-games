@@ -24,6 +24,19 @@
     </script>
 </head>
 <body>
+<div id="titlebar" class="always-visible">
+    <header>
+        <div class="logo"><img src="/pages/images/icon128.png"/></div>
+        <div class="title">Ride Leader Games</div>
+        <div class="filler"></div>
+        <div class="buttons">
+            <a class="button open-settings" href="settings.html?width=560&height=820&child-window"
+               title="Open settings" target="rlg-settings"><ms>settings</ms></a>
+            <div title="Minimize" class="button minimize electron-only"><ms>minimize</ms></div>
+            <div title="Close this window" class="button close electron-only"><ms>close</ms></div>
+        </div>
+    </header>
+</div>
 <div id="rlg" class="rlg-control">
 
     <header class="rlg-header">
@@ -86,82 +99,6 @@
             <button class="rlg-btn" id="btnSkipJoke">Skip</button>
         </div>
     </section>
-
-    <details class="rlg-config">
-        <summary>Configuration</summary>
-        <form id="configForm">
-            <label>Font scale (window text size)
-                <span class="range-row">
-                    <input type="range" name="fontScale" min="0.6" max="1.6" step="0.05" value="1"/>
-                    <output id="fontScaleVal">100%</output>
-                </span>
-            </label>
-            <label>Game duration (minutes)
-                <input type="number" name="duration" min="1" max="240" step="1" value="20"/>
-            </label>
-            <label>Send mode
-                <select name="sendMode">
-                    <option value="silent">Silent (log only)</option>
-                    <option value="review">Review (edit &amp; send)</option>
-                    <option value="auto">Auto (send immediately)</option>
-                </select>
-            </label>
-            <label>Chat prefix
-                <input type="text" name="chatPrefix" maxlength="8" value="🏁"/>
-            </label>
-            <label>Max message length (chars)
-                <input type="number" name="maxMessageLength" min="16" max="240" step="1" value="90"/>
-            </label>
-            <label>Delay between messages (seconds)
-                <input type="number" name="messageDelay" min="0" max="60" step="0.5" value="4"/>
-            </label>
-            <label>Joke answer delay — setup to punchline (seconds)
-                <input type="number" name="answerDelay" min="0" max="120" step="1" value="8"/>
-            </label>
-            <label>Joke prefix
-                <input type="text" name="jokePrefix" maxlength="8" value="😂"/>
-            </label>
-            <label class="checkbox">
-                <input type="checkbox" name="sendInstructions" checked/> Send instructions at start
-            </label>
-            <label>Instructions (sent at Start, before the timer — blank line = new message)
-                <textarea name="instructions" rows="4"
-                    placeholder="The selected game's default instructions are shown; edit to customize (your edits apply to every game). One paragraph per message; a blank line starts a new message."></textarea>
-            </label>
-            <div class="instr-tools">
-                <button type="button" class="rlg-btn small" id="btnLoadInstructions">Load from file…</button>
-                <input type="file" id="instructionsFile" accept=".txt,.md,text/plain,text/markdown" hidden/>
-                <span class="instr-note" id="instructionsNote"></span>
-            </div>
-            <label>Delay before start message (seconds)
-                <input type="number" name="startDelay" min="0" max="300" step="1" value="15"/>
-            </label>
-            <label>Min samples to qualify
-                <input type="number" name="minSamples" min="1" max="1000" step="1" value="5"/>
-            </label>
-            <label>Intersection anomaly threshold (m)
-                <input type="number" name="anomalyThresholdM" min="10" max="2000" step="10" value="150"/>
-            </label>
-            <label class="checkbox">
-                <input type="checkbox" name="announceStart" checked/> Announce game start
-            </label>
-            <label class="checkbox">
-                <input type="checkbox" name="announcePeriodic"/> Announce periodic standings
-            </label>
-            <label>Standings interval (seconds)
-                <input type="number" name="announceIntervalSec" min="10" max="1800" step="5" value="120"/>
-            </label>
-            <label class="checkbox">
-                <input type="checkbox" name="announceWinner" checked/> Announce winner
-            </label>
-            <label>Winners to announce
-                <input type="number" name="resultsCount" min="1" max="10" step="1" value="5"/>
-            </label>
-            <label class="checkbox">
-                <input type="checkbox" name="showDiagnostics" checked/> Show diagnostics
-            </label>
-        </form>
-    </details>
 
     <details class="rlg-replay">
         <summary>Replay (dev) <span class="replay-badge" id="replayBadge" data-mode="live">LIVE</span></summary>

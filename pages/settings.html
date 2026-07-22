@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<!--
+  Ride Leader Games — a Sauce for Zwift mod.
+  Copyright (C) 2026 Paul Curtis
+  SPDX-License-Identifier: GPL-3.0-or-later
+
+  This program is free software: you can redistribute it and/or modify it under the terms of the
+  GNU General Public License as published by the Free Software Foundation, either version 3 of the
+  License, or (at your option) any later version. This program is distributed WITHOUT ANY WARRANTY;
+  see the GNU General Public License <https://www.gnu.org/licenses/> for details.
+-->
+<html class="settings-page" tabindex="0" data-settings-key="ride-leader-games-settings-v1">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+    <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline';"/>
+    <title>Ride Leader Games — Settings</title>
+    <script src="/pages/src/preloads.js"></script>
+    <link rel="stylesheet" href="/pages/css/common.css"/>
+    <link rel="stylesheet" href="settings.css"/>
+    <script type="module">
+        import {settingsMain} from './settings.mjs';
+        settingsMain();
+    </script>
+</head>
+<body>
+<div id="titlebar">
+    <header>
+        <div class="logo"><img src="/pages/images/icon128.png"/></div>
+        <div class="title">Ride Leader Games — Settings</div>
+        <div class="filler"></div>
+        <div class="buttons">
+            <div title="Close this window" class="button close electron-only"><ms>close</ms></div>
+        </div>
+    </header>
+</div>
+<div id="settings">
+    <form id="configForm">
+        <label>Font scale (control window text size)
+            <span class="range-row">
+                <input type="range" name="fontScale" min="0.6" max="1.6" step="0.05" value="1"/>
+                <output id="fontScaleVal">100%</output>
+            </span>
+        </label>
+        <label>Game duration (minutes)
+            <input type="number" name="duration" min="1" max="240" step="1" value="20"/>
+        </label>
+        <label>Send mode
+            <select name="sendMode">
+                <option value="silent">Silent (log only)</option>
+                <option value="review">Review (edit &amp; send)</option>
+                <option value="auto">Auto (send immediately)</option>
+            </select>
+        </label>
+        <label>Chat prefix
+            <input type="text" name="chatPrefix" maxlength="8" value="🏁"/>
+        </label>
+        <label>Max message length (chars)
+            <input type="number" name="maxMessageLength" min="16" max="240" step="1" value="90"/>
+        </label>
+        <label>Delay between messages (seconds)
+            <input type="number" name="messageDelay" min="0" max="60" step="0.5" value="4"/>
+        </label>
+        <label>Joke answer delay — setup to punchline (seconds)
+            <input type="number" name="answerDelay" min="0" max="120" step="1" value="8"/>
+        </label>
+        <label>Joke prefix
+            <input type="text" name="jokePrefix" maxlength="8" value="😂"/>
+        </label>
+        <label class="checkbox">
+            <input type="checkbox" name="sendInstructions" checked/> Send instructions at start
+        </label>
+        <label>Instructions (sent at Start, before the timer — blank line = new message)
+            <textarea name="instructions" rows="4"
+                placeholder="The selected game's default instructions are shown; edit to customize (your edits apply to every game). One paragraph per message; a blank line starts a new message."></textarea>
+        </label>
+        <div class="instr-tools">
+            <button type="button" class="rlg-btn small" id="btnLoadInstructions">Load from file…</button>
+            <input type="file" id="instructionsFile" accept=".txt,.md,text/plain,text/markdown" hidden/>
+            <span class="instr-note" id="instructionsNote"></span>
+        </div>
+        <label>Delay before start message (seconds)
+            <input type="number" name="startDelay" min="0" max="300" step="1" value="15"/>
+        </label>
+        <label>Min samples to qualify
+            <input type="number" name="minSamples" min="1" max="1000" step="1" value="5"/>
+        </label>
+        <label>Intersection anomaly threshold (m)
+            <input type="number" name="anomalyThresholdM" min="10" max="2000" step="10" value="150"/>
+        </label>
+        <label class="checkbox">
+            <input type="checkbox" name="announceStart" checked/> Announce game start
+        </label>
+        <label class="checkbox">
+            <input type="checkbox" name="announcePeriodic"/> Announce periodic standings
+        </label>
+        <label>Standings interval (seconds)
+            <input type="number" name="announceIntervalSec" min="10" max="1800" step="5" value="120"/>
+        </label>
+        <label class="checkbox">
+            <input type="checkbox" name="announceWinner" checked/> Announce winner
+        </label>
+        <label>Winners to announce
+            <input type="number" name="resultsCount" min="1" max="10" step="1" value="5"/>
+        </label>
+        <label class="checkbox">
+            <input type="checkbox" name="showDiagnostics" checked/> Show diagnostics
+        </label>
+    </form>
+</div>
+</body>
+</html>
