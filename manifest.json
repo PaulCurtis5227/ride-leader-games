@@ -3,7 +3,7 @@
     "id": "ride-leader-games",
     "name": "Ride Leader Games",
     "description": "Games and tools for Zwift ride leaders. First game: the rider with the lowest average distance from the ride leader wins.",
-    "version": "0.3.0",
+    "version": "1.0.0",
     "author": "paul",
     "web_root": "pages",
     "windows": [
