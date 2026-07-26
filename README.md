@@ -3,8 +3,11 @@
 A [Sauce for Zwift](https://github.com/SauceLLC/sauce4zwift) **mod** — a set of games and tools for Zwift ride leaders.
 
 Over a configurable duration the mod scores every nearby rider and announces the standings and
-winners in chat. Which metric it scores is chosen from a **game picker** in the Control window; two
-games ship today (see [Games](#games)). All scored values are reported to two decimal places.
+winners in chat. Which metric it scores is chosen from a **game picker** in the Control window; nine
+games ship today (see [Games](#games)), scoring by **average**, **peak**, or **ride-ons received**.
+Separately, a **Since event start** panel tracks any metric — plus whole-ride totals for the group —
+across the entire ride, independently of the timed games. All scored values are reported to two
+decimal places.
 
 > [!IMPORTANT]
 > **Sending chat requires Sauce's Game Connection to be enabled — which effectively means you can't
@@ -62,22 +65,47 @@ Then in Sauce: **Settings → Mods**, enable *Ride Leader Games*, and restart Sa
 
 One window becomes available:
 
-- **Ride Leader Games — Control** — the leader's panel: configuration, live leaderboard, Start/Stop/Reset, chat review queue, a bicycle-joke sender, and diagnostics.
+- **Ride Leader Games — Control** — the leader's panel: game picker + round **Duration**, live
+  leaderboard, a **Since event start** metric viewer and ride totals, Start/Stop/Reset, chat review
+  queue, a bicycle-joke sender, and diagnostics. A **settings gear (⚙)** in the title bar opens a
+  separate Settings window for the rest of the configuration (send mode, prefixes, instructions,
+  announce options, font scale, etc.).
 
 Mod windows pick up new HTML/JS/CSS on **reopen**; new mods or `manifest.json` changes need a **full
 Sauce restart**.
 
 ## Games
 
-Pick the active game from the **Game** dropdown at the top of the Control window. The choice is
-persisted, and is locked while a game is running or pre-rolling. Each game brings its own default
+Pick the active game from the **Game** dropdown at the top of the Control window and set the round
+length with the **Duration (min)** field beside it. The choice is persisted, and both the game and
+duration are locked while a game is running or pre-rolling. Each game brings its own default
 instructions and chat wording; your standings, winner announcements, and CSV export all follow the
 selected game. Scored values are always formatted to **2 decimal places**.
 
-- **Closest to Leader** *(default)* — over the duration, the rider with the **lowest average distance
-  from the ride leader** wins. Requires a ride leader as the scoring reference (see below).
-- **Cadence Challenge** — the rider with the **highest average cadence (RPM)** wins. No ride leader
-  is needed, and coasting (0 RPM) counts against your average, so it rewards *sustained* spinning.
+Games differ in how a rider's per-moment readings are reduced to one score for the round: **average**
+(mean over the whole game), **peak** (best single reading), or **delta** (how much a running total
+grew during the game).
+
+**Leader-relative** — need a ride leader as the scoring reference (see [How scoring
+works](#how-scoring-works)):
+
+- **Closest to Leader** *(default)* — lowest **average distance from the ride leader** wins.
+- **Draft Master** — lowest **average power (W)** while staying **within 30 m** of the target rider
+  wins. You're only scored while you're in range, so it's about hiding in the draft *and* holding the
+  wheel.
+- **Torque Near Leader** — highest **average crank torque (N·m)** while within 30 m of the target
+  rider wins.
+
+**Solo** — no ride leader needed; every rider is scored on their own data:
+
+- **Average Power** — highest **average power (W)** wins.
+- **Cadence Challenge** — highest **average cadence (RPM)** wins; coasting (0 RPM) counts against
+  your average, so it rewards *sustained* spinning.
+- **Max Power** — highest **single power spike (W)** wins.
+- **Max Cadence** — highest **single cadence spike (RPM)** wins.
+- **Max Torque** — highest **single crank torque (N·m)** wins. Torque is `power × 60 ÷ (2π ×
+  cadence)`, so big gears at low cadence score.
+- **Ride-Ons Received** — most **ride-ons received during the round** wins.
 
 ## How scoring works
 
@@ -93,7 +121,34 @@ score_i = | gapDistance_i − gapDistance_leader |
 
 This lets a *different* player run the mod in debug mode and still score against the real ride leader — no need to watch or follow the leader.
 
-The **Cadence Challenge** game reads each rider's cadence directly and needs no reference, so the ride-leader field is ignored while it's selected.
+The **solo** games read each rider's own power / cadence / torque / ride-ons directly and need no reference, so the ride-leader field is ignored while one of them is selected.
+
+### Aggregate modes
+
+The engine collects a per-tick reading for each rider, then reduces the whole round to a single score three ways, depending on the game:
+
+- **average** — the mean of every reading (Closest to Leader, Average Power, Cadence Challenge, and the two "near the leader" games).
+- **peak** — the single highest reading (Max Power, Max Cadence, Max Torque).
+- **delta** — `last − first` of a running total, i.e. how much it grew during the round (Ride-Ons Received).
+
+### Proximity games
+
+**Draft Master** and **Torque Near Leader** only count a rider on ticks where they are **within 30 m** of the target rider, measured the same way as above (`| gapDistance_i − gapDistance_leader |`). Ticks spent out of range neither help nor hurt — so you have to hold the wheel *and* manage your power/torque while you do. The target rider is excluded from their own ranking.
+
+## Track any metric since the start of the ride
+
+Independently of the timed games, the Control window has a **Since event start** panel that
+accumulates continuously from the moment data starts flowing (or the last **Reset event**):
+
+- **Metric picker** — choose any metric (average or peak power, cadence, or torque; ride-ons;
+  distance; pedal strokes; calories) and see a live leaderboard of every nearby rider for it,
+  computed over the **whole ride** rather than a single game round.
+- **Ride totals** — headline totals across *all* riders: total **miles ridden**, **pedal strokes**,
+  **ride-ons received**, and **calories burnt**. (More metrics to come.)
+- **Reset event** — zeroes everything to begin a fresh event (e.g. a new lap or a new group).
+
+This runs whether or not a game is active, so you can keep an eye on the group's cumulative effort at
+any time. (Leader-relative metrics aren't offered here — they're specific to a timed round.)
 
 ## Send modes (staged rollout)
 
@@ -133,8 +188,8 @@ When you hit **Start**, the mod runs a short pre-roll *before* the timer begins:
 During the game, enable **Announce periodic standings** to send a "who's leading" update every
 **Standings interval** seconds. When the game ends, the top **Winners to announce** finishers
 (default **5**) are sent. Both the periodic standings and the final results include each rider's
-average score for the selected game (average distance from the leader, average cadence, etc.),
-formatted to 2 decimal places.
+value for the selected game — its average, peak, or ride-on count as appropriate — formatted to 2
+decimal places.
 
 Stop or Reset during the pre-roll cancels it cleanly — no start message, no game.
 
@@ -179,8 +234,11 @@ Cutting a release and listing the mod in the Sauce Mod Store are documented sepa
 
 ## Status
 
-`0.3.0` — game picker with two games (Closest to Leader, Cadence Challenge); all scores reported to
-2 decimal places. Silent-mode-first, with a live chat-link indicator (red/green) and version +
+`1.0.0` — nine games chosen from a game picker (Closest to Leader, Average Power, Cadence Challenge,
+Max Power, Max Cadence, Max Torque, Torque Near Leader, Draft Master, Ride-Ons Received), scoring by
+average / peak / delta, with the round **Duration** on the main window; a **Since event start**
+metric viewer plus whole-ride totals (miles, pedal strokes, ride-ons, calories); all scores to 2
+decimal places. Silent-mode-first, with a live chat-link indicator (red/green) and version +
 attribution shown in the window title. See the diagnostics export while we work out intersection
 handling.
 
