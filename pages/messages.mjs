@@ -97,3 +97,48 @@ export const CADENCE_MESSAGES = {
 
     noQualifiers: minSamples => `Game over — no winner winners needed ${minSamples}+ samples.`,
 };
+
+
+// ---- factory for the additional games (games.mjs) --------------------------------------------
+//
+// The two games above have bespoke, hand-tuned wording. The rest of the roster (power/cadence/torque
+// peaks and averages, proximity games, ride-ons) share one structure, so their text is built from
+// these helpers instead of hand-writing a full *_INSTRUCTIONS + *_MESSAGES pair each. The wording for
+// each such game is passed in from games.mjs (co-located with the game definition).
+
+// Shared closing paragraph — the scoring caveats every game inherits.
+export const SAFETY_NOTE =
+    "Heads up: only about 100 riders can be scored at once, and results can get a little noisy " +
+    "around intersections and road-segment transitions. Have fun and ride safe.";
+
+/*
+ * Build a start-of-game instructions blob from parts. `intro` states the goal, `howToWin` explains
+ * the scoring; both become their own message (blank line between), followed by the shared safety
+ * note — so the result always splits into >= 3 messages (see instructionMessages()).
+ */
+export function makeInstructions({intro, howToWin, safety = SAFETY_NOTE}) {
+    return `${intro}\n\n${howToWin}\n\n${safety}`;
+}
+
+/*
+ * Build a MESSAGES-shaped object. `start(durationMin)` is the on-air announcement (game-specific).
+ * `winnerVerb` is the short label before the value in the winner line ("avg", "peak", ""); an empty
+ * verb prints just the value (used when the formatted value already reads as a total, e.g. ride-ons).
+ * rankEntry / standings / noQualifiers are identical across these games.
+ */
+export function makeMessages({start, winnerVerb = ''}) {
+    return {
+        start,
+        rankEntry: (rank, name, val) => `${rank}) ${name} ${val}`,
+        standings: (seconds, parts) => `${seconds} to go. Standings: ${parts.join('  ')}`,
+        winner: (name, val, restParts) => {
+            const label = winnerVerb ? `${winnerVerb} ${val}` : val;
+            let msg = `Winner: ${name} — ${label}!`;
+            if (restParts && restParts.length) {
+                msg += ` Then ${restParts.join('  ')}`;
+            }
+            return msg;
+        },
+        noQualifiers: minSamples => `Game over — no winner; needed ${minSamples}+ samples.`,
+    };
+}

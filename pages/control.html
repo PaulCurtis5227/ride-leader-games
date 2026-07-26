@@ -65,6 +65,10 @@
             </div>
             <div class="riders-note" id="ridersNote"></div>
         </div>
+        <div class="duration">
+            <label for="durationInput">Duration (min)</label>
+            <input type="number" id="durationInput" min="1" max="240" step="1" value="20"/>
+        </div>
         <div class="controls">
             <button class="rlg-btn primary" id="btnStart">Start</button>
             <button class="rlg-btn" id="btnStop" disabled>Stop</button>
@@ -75,6 +79,19 @@
     <section class="rlg-board">
         <h2>Leaderboard <small id="boardNote"></small></h2>
         <ol id="leaderboard" class="leaderboard"></ol>
+    </section>
+
+    <section class="rlg-event">
+        <h2>Since event start
+            <small id="eventElapsed"></small>
+            <button class="rlg-btn small" id="btnResetEvent" title="Start a fresh event (zero all totals)">Reset event</button>
+        </h2>
+        <div class="event-pick">
+            <label for="eventMetric">Metric</label>
+            <select id="eventMetric"></select>
+        </div>
+        <ol id="eventBoard" class="leaderboard"></ol>
+        <div class="ride-totals" id="rideTotals"></div>
     </section>
 
     <section class="rlg-outbox">

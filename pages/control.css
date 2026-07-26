@@ -106,6 +106,9 @@ section, details {
 .ref-flag.ok { color: var(--rlg-accent); opacity: 1; }
 .ref-flag.warn { color: var(--rlg-warn); opacity: 1; }
 .riders-note { grid-column: 1 / -1; font-size: 0.72rem; opacity: 0.6; }
+.duration { grid-column: 1 / -1; display: flex; align-items: center; gap: 0.5rem; }
+.duration label { font-size: 0.7rem; opacity: 0.7; }
+.duration input { width: 4.5rem; }
 .controls { grid-column: 1 / -1; display: flex; gap: 0.4rem; }
 
 .rlg-btn {
@@ -138,6 +141,23 @@ section, details {
 .leaderboard .avg { font-variant-numeric: tabular-nums; font-weight: 600; }
 .leaderboard .samples { font-size: 0.72rem; opacity: 0.5; font-variant-numeric: tabular-nums; }
 .leaderboard li.unqualified { opacity: 0.5; }
+
+/* event viewer (since event start) */
+.rlg-event .event-pick { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; }
+.rlg-event .event-pick label { font-size: 0.7rem; opacity: 0.7; }
+.rlg-event .event-pick select { flex: 1; }
+.rlg-event #eventBoard { max-height: 160px; }
+#btnResetEvent { margin-left: auto; }
+.ride-totals { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.4rem; margin-top: 0.5rem; }
+.ride-total {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--rlg-border);
+    border-radius: 5px;
+    padding: 0.35rem 0.3rem;
+    text-align: center;
+}
+.ride-total .rt-val { display: block; font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ride-total .rt-label { display: block; font-size: 0.62rem; opacity: 0.6; margin-top: 0.1rem; }
 
 /* messages / outbox */
 .mode-badge {

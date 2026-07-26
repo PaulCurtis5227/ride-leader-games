@@ -15,6 +15,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     DEFAULT_INSTRUCTIONS, MESSAGES, CADENCE_INSTRUCTIONS, CADENCE_MESSAGES,
+    makeInstructions, makeMessages, SAFETY_NOTE,
 } from '../pages/messages.mjs';
 import {instructionMessages} from '../pages/engine.mjs';
 
@@ -79,4 +80,32 @@ test('CADENCE_MESSAGES.winner has no leader wording and appends runner-ups when 
     assert.equal(CADENCE_MESSAGES.winner('Alice', '90rpm', []), 'Winner: Alice — avg 90rpm!');
     assert.ok(!/from the leader/.test(CADENCE_MESSAGES.winner('Alice', '90rpm', [])));
     assert.match(CADENCE_MESSAGES.winner('Alice', '90rpm', ['2) Bob 80rpm']), /Then 2\) Bob 80rpm$/);
+});
+
+
+// ---- message/instruction factory (the additional games) ----
+
+test('makeInstructions builds a >= 3-block blob ending in the safety note', () => {
+    const blob = makeInstructions({intro: 'Goal here.', howToWin: 'Win like this.'});
+    const blocks = instructionMessages(blob);
+    assert.ok(blocks.length >= 3, 'intro + how-to-win + safety');
+    assert.equal(blocks[0], 'Goal here.');
+    assert.equal(blocks[blocks.length - 1], SAFETY_NOTE);
+});
+
+test('makeMessages: rankEntry / standings / noQualifiers match the shared format', () => {
+    const m = makeMessages({start: d => `ON ${d}`, winnerVerb: 'peak'});
+    assert.equal(m.start(20), 'ON 20');
+    assert.equal(m.rankEntry(2, 'Alice', '300W'), '2) Alice 300W');
+    assert.equal(m.standings('5:00', ['1) A 1W', '2) B 2W']), '5:00 to go. Standings: 1) A 1W  2) B 2W');
+    assert.match(m.noQualifiers(5), /needed 5\+ samples/);
+});
+
+test('makeMessages winner: uses the verb, or just the value when the verb is empty', () => {
+    const peak = makeMessages({start: () => '', winnerVerb: 'peak'});
+    assert.equal(peak.winner('Alice', '300W', []), 'Winner: Alice — peak 300W!');
+    assert.match(peak.winner('Alice', '300W', ['2) Bob 250W']), /Then 2\) Bob 250W$/);
+
+    const bare = makeMessages({start: () => '', winnerVerb: ''});
+    assert.equal(bare.winner('Alice', '5.00 ride-ons', []), 'Winner: Alice — 5.00 ride-ons!');
 });

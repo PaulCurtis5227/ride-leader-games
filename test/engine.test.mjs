@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import {
     RideLeaderGame, STATES, chunkMessage, instructionMessages,
 } from '../pages/engine.mjs';
-import {CADENCE_GAME} from '../pages/games.mjs';
+import {CADENCE_GAME, MAX_POWER_GAME, RIDEONS_GAME, POWER_NEAR_GAME} from '../pages/games.mjs';
 
 // A nearby entry with a signed gapDistance (relative to the watched rider).
 function entry(id, gapDistance, name, extra = {}) {
@@ -199,6 +199,67 @@ test('cadence game: winnerMessage formats rpm and drops the leader wording', () 
     assert.match(msg, /Winner: Alice/);
     assert.match(msg, /\d+rpm/, 'average is formatted in rpm');
     assert.ok(!/from the leader/.test(msg), 'cadence winner text has no leader reference');
+});
+
+// ---- aggregation modes (max / delta) and the proximity gate ----
+
+function powEntry(id, power, name, extra = {}) {
+    return {athleteId: id, gapDistance: 0, athlete: {sanitizedFullname: name}, state: {power}, ...extra};
+}
+
+test('max aggregate: the single highest score wins (not the average)', () => {
+    const g = runGame({game: MAX_POWER_GAME, minSamples: 1}, [
+        [powEntry(2, 100, 'Alice'), powEntry(3, 250, 'Bob')],
+        [powEntry(2, 300, 'Alice'), powEntry(3, 250, 'Bob')],   // Alice spikes
+        [powEntry(2, 200, 'Alice'), powEntry(3, 250, 'Bob')],
+    ]);
+    const rows = g.standings();
+    assert.equal(rows[0].name, 'Alice', 'highest peak tops the board');
+    assert.equal(rows[0].avg, 300, 'ranked value is the peak, not the mean');
+    assert.equal(rows.find(r => r.name === 'Bob').avg, 250);
+});
+
+function rideonEntry(id, rideons, name) {
+    return {athleteId: id, gapDistance: 0, athlete: {sanitizedFullname: name}, state: {rideons}};
+}
+
+test('delta aggregate: ride-ons received = last − first cumulative reading', () => {
+    const g = runGame({game: RIDEONS_GAME, minSamples: 1}, [
+        [rideonEntry(2, 2, 'Alice'), rideonEntry(3, 10, 'Bob')],
+        [rideonEntry(2, 5, 'Alice'), rideonEntry(3, 11, 'Bob')],
+        [rideonEntry(2, 9, 'Alice'), rideonEntry(3, 12, 'Bob')],
+    ]);
+    const rows = g.standings();
+    assert.equal(rows[0].name, 'Alice', 'most received wins');
+    assert.equal(rows[0].avg, 7, '9 − 2');
+    assert.equal(rows.find(r => r.name === 'Bob').avg, 2, '12 − 10');
+});
+
+test('delta + carryForward:false: a vanished rider is not inflated by carry-forward', () => {
+    const g = runGame({game: RIDEONS_GAME, minSamples: 1}, [
+        [rideonEntry(2, 2, 'Alice'), rideonEntry(3, 0, 'Bob')],
+        [rideonEntry(2, 5, 'Alice'), rideonEntry(3, 0, 'Bob')],
+        [rideonEntry(3, 0, 'Bob')],   // Alice drops out of the list
+    ]);
+    const alice = g.standings().find(r => r.name === 'Alice');
+    assert.equal(alice.samples, 2, 'no carry-forward tick added');
+    assert.equal(alice.avg, 3, '5 − 2 (unchanged by the dropout)');
+});
+
+function proxEntry(id, gap, power, name, extra = {}) {
+    return {athleteId: id, gapDistance: gap, athlete: {sanitizedFullname: name}, state: {power}, ...extra};
+}
+
+test('proximity gate: only ticks within range are scored; target rider excluded', () => {
+    const g = runGame({game: POWER_NEAR_GAME, leaderId: 1, minSamples: 1}, [
+        [proxEntry(1, 100, 300, 'Leader', {watching: true}), proxEntry(2, 120, 100, 'Alice')], // relGap 20: in
+        [proxEntry(1, 100, 300, 'Leader', {watching: true}), proxEntry(2, 200, 400, 'Alice')], // relGap 100: out
+    ]);
+    const rows = g.standings();
+    assert.ok(!rows.some(r => r.name === 'Leader'), 'the reference rider is not scored');
+    const alice = rows.find(r => r.name === 'Alice');
+    assert.equal(alice.samples, 1, 'only the in-range tick counts');
+    assert.equal(alice.avg, 100, 'the out-of-range 400W tick is ignored');
 });
 
 test('game finishes automatically when the planned end time passes', () => {

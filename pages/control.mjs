@@ -14,6 +14,7 @@
 import * as Common from '/pages/src/common.mjs';
 import {RideLeaderGame, SEND_MODES, STATES, chunkMessage, instructionMessages} from './engine.mjs';
 import {GAMES, getGame, DEFAULT_GAME_KEY} from './games.mjs';
+import {EventTracker, METRICS, getMetric, DEFAULT_METRIC_KEY} from './event-tracker.mjs';
 import {getSauceStreams} from './s4z-streams.mjs';
 import {JokeDeck} from './jokedeck.mjs';
 import {JOKES} from './jokes-data.mjs';
@@ -55,9 +56,11 @@ const SETTING_DEFAULTS = {
     fontScale: 1,            // UI font scale multiplier (see applyFontScale)
     answerDelay: 8,          // seconds between a joke's setup and its punchline
     jokePrefix: '\u{1F602}', // 😂 prepended to joke messages (empty to disable)
+    eventMetric: DEFAULT_METRIC_KEY,   // which metric the "since event start" viewer shows
 };
 
 let game;
+let tracker;   // event-long metric/stats accumulator (independent of game rounds)
 let els;
 let lastState = STATES.IDLE;
 let lastPeriodicAnnounce = 0;
@@ -120,6 +123,14 @@ function applyFontScale(scaleOverride) {
     }
 }
 
+// Keep the on-window duration field showing the stored value (it lives on the main window now, but
+// the Settings window shares the same store, so reflect external changes too).
+function syncDurationInput() {
+    if (els.durationInput && document.activeElement !== els.durationInput) {
+        els.durationInput.value = String(Number(get('duration')) || 20);
+    }
+}
+
 function readConfigIntoEngine() {
     game.setConfig({
         game: activeGame(),
@@ -171,6 +182,48 @@ function renderBoard() {
             <span class="avg">${fmt(r.avg)}</span>
             <span class="samples" title="scoring samples${r.carriedTicks ? ` · ${r.carriedTicks} carried` : ''}">${r.samples}${r.carriedTicks ? '*' : ''}</span>
         </li>`).join('');
+}
+
+// ---- event viewer (metric standings + ride-wide totals, since event start) ----
+
+// Populate the metric dropdown once from the registry and restore the saved selection.
+function buildEventPicker() {
+    els.eventMetric.innerHTML = METRICS
+        .map(m => `<option value="${m.key}">${Common.sanitize(m.name)}</option>`)
+        .join('');
+    els.eventMetric.value = getMetric(get('eventMetric')).key;   // normalize unknown/missing
+    els.eventMetric.addEventListener('change', () => {
+        settings.set('eventMetric', els.eventMetric.value);
+        renderEvent();
+    });
+}
+
+function renderEvent() {
+    if (!tracker) {
+        return;
+    }
+    const metric = getMetric(get('eventMetric'));
+    const rows = tracker.standings(metric.key);
+    els.eventElapsed.textContent = tracker.startTime != null
+        ? `${fmtClock(tracker.elapsedMs(clockNow()))} · ${rows.length} riders` : '';
+    els.eventBoard.innerHTML = rows.map((r, i) => `
+        <li>
+            <span class="rank">${i + 1}</span>
+            <span class="name">${Common.sanitize(r.name)}</span>
+            <span class="avg">${metric.format(r.value)}</span>
+        </li>`).join('');
+
+    const t = tracker.rideTotals();
+    els.rideTotals.innerHTML = [
+        ['Total miles', t.miles.toFixed(1)],
+        ['Pedal strokes', Math.round(t.strokes).toLocaleString()],
+        ['Ride-ons', Math.round(t.rideOns).toLocaleString()],
+        ['Calories', Math.round(t.calories).toLocaleString()],
+    ].map(([label, val]) => `
+        <div class="ride-total">
+            <span class="rt-val">${val}</span>
+            <span class="rt-label">${label}</span>
+        </div>`).join('');
 }
 
 function renderOutbox() {
@@ -238,6 +291,7 @@ function summarizeDiag(type, d) {
 function renderAll() {
     renderClock();
     renderBoard();
+    renderEvent();
     renderOutbox();
     renderDiag();
 }
@@ -531,6 +585,10 @@ function syncButtons() {
     if (els.gamePicker) {
         els.gamePicker.disabled = running || starting;
     }
+    // Duration can't change once the round is timing (it sets the end time at Start).
+    if (els.durationInput) {
+        els.durationInput.disabled = running || starting;
+    }
 }
 
 
@@ -543,14 +601,19 @@ function onNearby(entries) {
     updateLeaderPicker(entries);
     updateReference(entries);
     readConfigIntoEngine();
+    // The event tracker runs continuously (independent of game rounds) so the "since event start"
+    // viewer and ride-wide totals accumulate whether or not a game is active.
+    tracker.ingest(entries, clockNow());
     if (game.state === STATES.RUNNING) {
         game.ingest(entries, clockNow());
         if (game.state === STATES.FINISHED) {   // ingest auto-finished on time-up
             onFinish();
+            renderEvent();
             return;
         }
     }
     renderBoard();
+    renderEvent();
     renderDiag();
 }
 
@@ -761,6 +824,12 @@ export async function main() {
         leaderPicker: document.querySelector('#leaderPicker'),
         leaderFlag: document.querySelector('#leaderFlag'),
         ridersNote: document.querySelector('#ridersNote'),
+        durationInput: document.querySelector('#durationInput'),
+        eventMetric: document.querySelector('#eventMetric'),
+        eventBoard: document.querySelector('#eventBoard'),
+        eventElapsed: document.querySelector('#eventElapsed'),
+        rideTotals: document.querySelector('#rideTotals'),
+        btnResetEvent: document.querySelector('#btnResetEvent'),
         btnStart: document.querySelector('#btnStart'),
         btnStop: document.querySelector('#btnStop'),
         btnReset: document.querySelector('#btnReset'),
@@ -785,11 +854,14 @@ export async function main() {
         config: {},
         onDiag: ev => { console.debug('[rlg diag]', ev); },
     });
+    tracker = new EventTracker();
     readConfigIntoEngine();
 
     Common.initInteractionListeners();
     applyFontScale();
     buildGamePicker();
+    buildEventPicker();
+    syncDurationInput();
 
     // Config is edited in the settings window (settings.html, opened from the titlebar gear). Its
     // writes reach this window as the settings store's 'set' event (cross-window via the localStorage
@@ -798,7 +870,9 @@ export async function main() {
     settings.addEventListener('set', () => {
         readConfigIntoEngine();
         applyFontScale();
+        syncDurationInput();
         renderOutbox();
+        renderEvent();
         renderDiag();
     });
 
@@ -806,6 +880,20 @@ export async function main() {
     els.btnStart.addEventListener('click', onStart);
     els.btnStop.addEventListener('click', onStop);
     els.btnReset.addEventListener('click', onReset);
+
+    // Duration lives on the main window (persisted to the shared store; Settings reflects it too).
+    els.durationInput.addEventListener('change', () => {
+        const v = Math.min(240, Math.max(1, Math.round(Number(els.durationInput.value) || 20)));
+        els.durationInput.value = String(v);
+        settings.set('duration', v);
+        readConfigIntoEngine();
+    });
+
+    // Reset event: start a fresh ride-long accumulation (zeros the metric viewer + totals).
+    els.btnResetEvent.addEventListener('click', () => {
+        tracker.reset(clockNow());
+        renderEvent();
+    });
 
     // Jokes — deal the first joke immediately so Send/Skip are live on open.
     jokeDeck = new JokeDeck(JOKES);
@@ -986,6 +1074,7 @@ function gameClock() {
         syncButtons();
     }
     renderClock();
+    renderEvent();  // keep the "since event start" elapsed + totals ticking even when nearby is quiet
     renderConn();   // refresh "receiving data" vs "waiting" as data recency changes
     renderJokeStatus();   // live "punchline in Ns…" countdown while a joke send is pending
 }

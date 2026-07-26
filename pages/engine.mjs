@@ -10,16 +10,19 @@
  *
  * Ride Leader Games — game engine (framework-agnostic, no DOM).
  *
- * The engine is game-agnostic: it owns the timer, per-rider averaging, carry-forward for riders
+ * The engine is game-agnostic: it owns the timer, per-rider accumulation, carry-forward for riders
  * that drop out of the `nearby` list, diagnostics, and export. WHAT gets scored is supplied by a
  * pluggable game definition (see games.mjs) via `config.game` — it reads a value off each `nearby`
- * entry, turns it into a per-tick score, and decides ranking direction + formatting. Two games ship:
+ * entry, turns it into a per-tick score, optionally gates the rider (e.g. must be within Nm of the
+ * target), and decides ranking direction + formatting. The engine reduces each rider's per-tick
+ * scores per the game's `aggregate` mode:
  *
- *   - leader-distance (default): score_i = |gapDistance_i − gapDistance_leader|; lowest average wins.
- *   - cadence:                   score_i = cadence_i (RPM);                      highest average wins.
+ *   - avg   (default): mean score over the game — e.g. leader-distance, average power/cadence/torque.
+ *   - max:             best single score — e.g. peak power/cadence/torque.
+ *   - delta:           lastReading − firstReading — e.g. ride-ons received during the game.
  *
- * The winner is the rider with the best AVERAGE score over the game duration (best = lowest or
- * highest per the game's `higherIsBetter`).
+ * The winner is the rider with the best aggregate value (best = lowest or highest per the game's
+ * `higherIsBetter`).
  */
 
 import {LEADER_DISTANCE_GAME} from './games.mjs';
@@ -128,10 +131,13 @@ export class RideLeaderGame {
             this._diag('list-saturated', {tick, riders: entries.length, cap: this.config.maxRiders});
         }
 
-        // Resolve the scoring reference (offset). Games that score relative to the ride leader
+        // Resolve the scoring reference. Games that score relative to the ride leader
         // (needsReference) require the leader in this tick's list; if a configured leader is absent
-        // we skip scoring this tick rather than corrupt averages. Games without a reference (e.g.
-        // cadence) score every rider on their own value, so no leader gating and no exclusions.
+        // we skip scoring this tick rather than corrupt averages. The reference quantity is always
+        // gapDistance: `offset` is the leader's gapDistance, so the per-rider `relGap` (rider −
+        // leader, in metres) is what the leader-distance game scores AND what proximity games gate
+        // on (e.g. "within 30m of the target"). Games without a reference (e.g. cadence) score every
+        // rider on their own value, so no leader gating and no exclusions.
         let offset = 0;
         let effectiveLeaderId = null;   // recorded on raw rows for context
         let excludeId = null;           // rider excluded from scoring (the reference), or none
@@ -139,7 +145,7 @@ export class RideLeaderGame {
             const leaderId = this.config.leaderId;
             if (leaderId != null) {
                 const leaderEntry = entries.find(e => e.athleteId === leaderId);
-                if (!leaderEntry || !Number.isFinite(game.read(leaderEntry))) {
+                if (!leaderEntry || !Number.isFinite(leaderEntry.gapDistance)) {
                     if (this.leaderVisible !== false) {
                         this._diag('leader-not-visible', {tick, leaderId});
                     }
@@ -147,11 +153,12 @@ export class RideLeaderGame {
                     return false;
                 }
                 this.leaderVisible = true;
-                offset = game.read(leaderEntry);
+                offset = leaderEntry.gapDistance;
                 effectiveLeaderId = leaderId;
             } else {
-                // Reference = watched rider (gapDistance is already relative to them, so offset 0).
+                // Reference = watched rider (gapDistance is already relative to them, ≈ 0).
                 const watched = entries.find(e => e.watching);
+                offset = watched && Number.isFinite(watched.gapDistance) ? watched.gapDistance : 0;
                 effectiveLeaderId = watched ? watched.athleteId : null;
             }
             excludeId = effectiveLeaderId;
@@ -161,16 +168,22 @@ export class RideLeaderGame {
             this.leaderVisible = null;
         }
 
-        const ctx = {offset};
         const anomalyThreshold = game.anomalyThreshold ? game.anomalyThreshold(this.config) : null;
         const present = new Set();
         const rawRow = {tick, t: nowMs, leaderId: effectiveLeaderId, offset, saturated: this.saturated, riders: []};
 
-        // Score every rider present this tick (except the reference rider, when there is one).
+        // Score every rider present this tick (except the reference rider, when there is one). ctx is
+        // per-rider because relGap (distance from the leader) differs per rider; proximity games use
+        // it to decide whether the rider counts this tick (game.gate).
         for (const e of entries) {
             const reading = game.read(e);
             if (!Number.isFinite(reading) || e.athleteId === excludeId) {
                 continue;
+            }
+            const relGap = game.needsReference && Number.isFinite(e.gapDistance) ? e.gapDistance - offset : 0;
+            const ctx = {offset, relGap};
+            if (game.gate && !game.gate(e, ctx)) {
+                continue;   // e.g. rider outside the proximity window this tick — neither helps nor hurts
             }
             present.add(e.athleteId);
             const score = game.score(reading, ctx);
@@ -188,31 +201,41 @@ export class RideLeaderGame {
             }
 
             rec.name = nameOf(e) || rec.name;
+            if (rec.firstReading == null) {
+                rec.firstReading = reading;
+            }
             rec.lastReading = reading;
             rec.lastSeenTick = tick;
             rec.carriedTicks = 0;
             rec.sum += score;
             rec.count++;
+            rec.maxScore = Math.max(rec.maxScore, score);
             rawRow.riders.push({id: e.athleteId, reading: round1(reading), score: round1(score), carried: false});
         }
 
         // Carry-forward: riders we were tracking that dropped out of this tick's list keep
         // scoring against their last known reading. Riders drop out at intersections (the far side
         // of the intersection isn't listed) or when the list saturates at the cap; this is interim
-        // behavior until we know how we want to handle those gaps.
-        for (const rec of this.athletes.values()) {
-            if (present.has(rec.athleteId) || rec.athleteId === excludeId || rec.lastReading == null) {
-                continue;
+        // behavior until we know how we want to handle those gaps. Only games that opt in
+        // (game.carryForward — the averaging games) do this; max/delta/proximity games leave a
+        // vanished rider frozen (carrying forward would inflate their sample count without new data).
+        if (game.carryForward) {
+            const ctx = {offset, relGap: 0};   // leader-distance carry uses offset; relGap unused here
+            for (const rec of this.athletes.values()) {
+                if (present.has(rec.athleteId) || rec.athleteId === excludeId || rec.lastReading == null) {
+                    continue;
+                }
+                const score = game.score(rec.lastReading, ctx);
+                rec.carriedTicks++;
+                rec.sum += score;
+                rec.count++;
+                rec.maxScore = Math.max(rec.maxScore, score);
+                this._diag('carry-forward', {
+                    tick, athleteId: rec.athleteId, name: rec.name,
+                    carriedTicks: rec.carriedTicks, heldM: round1(rec.lastReading),
+                });
+                rawRow.riders.push({id: rec.athleteId, reading: round1(rec.lastReading), score: round1(score), carried: true});
             }
-            const score = game.score(rec.lastReading, ctx);
-            rec.carriedTicks++;
-            rec.sum += score;
-            rec.count++;
-            this._diag('carry-forward', {
-                tick, athleteId: rec.athleteId, name: rec.name,
-                carriedTicks: rec.carriedTicks, heldM: round1(rec.lastReading),
-            });
-            rawRow.riders.push({id: rec.athleteId, reading: round1(rec.lastReading), score: round1(score), carried: true});
         }
 
         this._pushRaw(rawRow);
@@ -225,7 +248,8 @@ export class RideLeaderGame {
             rec = {
                 athleteId,
                 name: entry ? nameOf(entry) : String(athleteId),
-                sum: 0, count: 0,
+                // avg: sum/count. max: maxScore. delta: lastReading - firstReading.
+                sum: 0, count: 0, maxScore: -Infinity, firstReading: null,
                 lastReading: null, lastSeenTick: null, carriedTicks: 0,
             };
             this.athletes.set(athleteId, rec);
@@ -233,21 +257,40 @@ export class RideLeaderGame {
         return rec;
     }
 
-    /* Current ranking, best average first (lowest, or highest for a higherIsBetter game). */
+    /*
+     * Current ranking, best first. The ranked value per rider depends on the game's aggregate mode:
+     *   avg   -> sum / count            (leader-distance, average power/cadence/torque)
+     *   max   -> best single score      (peak power/cadence/torque)
+     *   delta -> lastReading - first    (ride-ons received during the game)
+     * The value is returned as `avg` regardless of mode (it's "the ranked value") so the control
+     * window and message templates need no per-mode branching — they format it via the game.
+     */
     standings() {
-        const higher = this._game().higherIsBetter;
+        const game = this._game();
+        const higher = game.higherIsBetter;
+        const agg = game.aggregate || 'avg';
         const rows = [];
         for (const rec of this.athletes.values()) {
-            if (rec.count > 0) {
-                rows.push({
-                    athleteId: rec.athleteId,
-                    name: rec.name,
-                    avg: rec.sum / rec.count,
-                    samples: rec.count,
-                    carriedTicks: rec.carriedTicks,
-                    qualified: rec.count >= this.config.minSamples,
-                });
+            if (rec.count <= 0) {
+                continue;
             }
+            let value;
+            if (agg === 'max') {
+                value = rec.maxScore;
+            } else if (agg === 'delta') {
+                value = (rec.lastReading != null && rec.firstReading != null)
+                    ? rec.lastReading - rec.firstReading : 0;
+            } else {
+                value = rec.sum / rec.count;
+            }
+            rows.push({
+                athleteId: rec.athleteId,
+                name: rec.name,
+                avg: value,
+                samples: rec.count,
+                carriedTicks: rec.carriedTicks,
+                qualified: rec.count >= this.config.minSamples,
+            });
         }
         rows.sort((a, b) => higher ? b.avg - a.avg : a.avg - b.avg);
         return rows;
