@@ -148,7 +148,13 @@ section, details {
 .rlg-event .event-pick select { flex: 1; }
 .rlg-event #eventBoard { max-height: 160px; }
 #btnResetEvent { margin-left: auto; }
-.ride-totals { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.4rem; margin-top: 0.5rem; }
+/* auto-fitting rather than a fixed column count, so adding a total doesn't leave a stranded tile */
+.ride-totals {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(4.5rem, 1fr));
+    gap: 0.4rem;
+    margin-top: 0.5rem;
+}
 .ride-total {
     background: rgba(255,255,255,0.04);
     border: 1px solid var(--rlg-border);

@@ -13,10 +13,12 @@
  * This is a plain Sauce settings child window: `initSettingsForm` two-way-binds every field to the
  * shared settings store (same data-settings-key as the control window), so edits here propagate to
  * the live control window via the cross-window `storage` event with no extra wiring. The only
- * bespoke logic is the game-specific Instructions default display and the load-from-file helper.
+ * bespoke logic is the game-specific Instructions default display, the load-from-file helper, and
+ * generating the rider-announcement fields from the announcements.mjs registry.
  */
 import * as Common from '/pages/src/common.mjs';
 import {getGame, DEFAULT_GAME_KEY} from './games.mjs';
+import {ANNOUNCEMENTS} from './announcements.mjs';
 import {instructionMessages} from './engine.mjs';
 
 const settings = Common.settingsStore;
@@ -42,6 +44,40 @@ function showDefaultInstructionsIfUnset() {
     }
 }
 
+/*
+ * Generate the rider-announcement fields from the registry — one on/off checkbox plus one editable
+ * message template each, with the available `{placeholder}` names listed underneath. MUST run
+ * before initSettingsForm() so the new inputs get bound to the store like any hand-written field.
+ *
+ * The registry defaults go into the `checked` attribute / textarea content rather than the store,
+ * which is exactly what initSettingsForm expects: it only overwrites a field when the store holds a
+ * value, so the markup IS the default until the leader changes something.
+ */
+function buildAnnouncementFields() {
+    const host = document.querySelector('#announcements');
+    if (!host) {
+        return;
+    }
+    host.innerHTML = ANNOUNCEMENTS.map(a => `
+        <div class="announcement">
+            <label class="checkbox">
+                <input type="checkbox" name="${a.enabledSetting}"${a.defaultEnabled ? ' checked' : ''}/>
+                Announce: ${Common.sanitize(a.name)}
+            </label>
+            <label>${Common.sanitize(a.description)}
+                <textarea name="${a.templateSetting}" rows="2">${Common.sanitize(a.defaultTemplate)}</textarea>
+            </label>
+            <div class="ann-tokens">${a.placeholders.map(p =>
+                `<code>{${Common.sanitize(p.name)}}</code> ${Common.sanitize(p.description)}`).join(' · ')}</div>
+            ${(a.options || []).map(o => `
+                <label class="checkbox">
+                    <input type="checkbox" name="${o.setting}"${o.defaultValue ? ' checked' : ''}/>
+                    ${Common.sanitize(o.label)}
+                </label>
+                <div class="ann-note">${Common.sanitize(o.description)}</div>`).join('')}
+        </div>`).join('');
+}
+
 function applyFontScaleOutput(raw) {
     const scale = Math.min(2, Math.max(0.6, Number(raw) || 1));
     const out = document.querySelector('#fontScaleVal');
@@ -53,6 +89,7 @@ function applyFontScaleOutput(raw) {
 
 export async function settingsMain() {
     Common.initInteractionListeners();
+    buildAnnouncementFields();          // must precede initSettingsForm so the fields get bound
     await Common.initSettingsForm('#configForm')();
 
     // initSettingsForm only fills a field when the store holds a defined value, so an unsaved

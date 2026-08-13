@@ -100,6 +100,11 @@
         <label>Winners to announce
             <input type="number" name="resultsCount" min="1" max="10" step="1" value="5"/>
         </label>
+        <!-- Rider-event announcements. Built at load from the announcements.mjs registry (one
+             on/off checkbox + one editable message template each), so a new announcement type
+             needs no markup here. -->
+        <h3 class="section-head">Rider announcements</h3>
+        <div id="announcements" class="announcements"></div>
         <label class="checkbox">
             <input type="checkbox" name="showDiagnostics" checked/> Show diagnostics
         </label>

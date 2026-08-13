@@ -6,8 +6,9 @@ Over a configurable duration the mod scores every nearby rider and announces the
 winners in chat. Which metric it scores is chosen from a **game picker** in the Control window; nine
 games ship today (see [Games](#games)), scoring by **average**, **peak**, or **ride-ons received**.
 Separately, a **Since event start** panel tracks any metric — plus whole-ride totals for the group —
-across the entire ride, independently of the timed games. All scored values are reported to two
-decimal places.
+across the entire ride, independently of the timed games, and **rider announcements** congratulate
+riders in chat when something happens to them (a level-up today). All scored values are reported to
+two decimal places.
 
 > [!IMPORTANT]
 > **Sending chat requires Sauce's Game Connection to be enabled — which effectively means you can't
@@ -141,14 +142,80 @@ Independently of the timed games, the Control window has a **Since event start**
 accumulates continuously from the moment data starts flowing (or the last **Reset event**):
 
 - **Metric picker** — choose any metric (average or peak power, cadence, or torque; ride-ons;
-  distance; pedal strokes; calories) and see a live leaderboard of every nearby rider for it,
-  computed over the **whole ride** rather than a single game round.
+  distance; pedal strokes; calories; Zwift level) and see a live leaderboard of every nearby rider
+  for it, computed over the **whole ride** rather than a single game round. Level comes in two
+  flavours — **Level (highest first)** and **Level (lowest first)** — the same reading sorted both
+  ways, so you can see the group's most experienced riders or spot the newcomers to welcome.
 - **Ride totals** — headline totals across *all* riders: total **miles ridden**, **pedal strokes**,
-  **ride-ons received**, and **calories burnt**. (More metrics to come.)
+  **ride-ons received**, **calories burnt**, and **levels gained** during the ride. (More metrics to
+  come.)
 - **Reset event** — zeroes everything to begin a fresh event (e.g. a new lap or a new group).
 
 This runs whether or not a game is active, so you can keep an eye on the group's cumulative effort at
 any time. (Leader-relative metrics aren't offered here — they're specific to a timed round.)
+
+> [!NOTE]
+> A rider's level comes from their Zwift **profile**, which Sauce loads and refreshes in the
+> background rather than reading it every tick. So the level column lags, a rider whose profile
+> hasn't loaded yet is left out of the level standings, and one who just joined may briefly show the
+> level they were on last time you rode with them. **Levels gained** counts only *confirmed*
+> level-ups, so that catching-up never inflates it. See
+> [Why level-ups behave oddly](#why-level-ups-behave-oddly) for the whole story.
+
+## Rider announcements
+
+Independently of the games, the mod watches for things that happen *to* a rider and congratulates
+them in chat. Each announcement has its own on/off switch and a fully editable message template in
+the Settings window (**Rider announcements**):
+
+- **Level up** — sent when a rider in the group gains a Zwift level. Default message:
+  `🎉 LEVEL UP! Huge congratulations to {name}, now Level {level}! 🎉`
+
+Templates use `{placeholder}` names that are substituted per event; the Settings window lists the
+ones each announcement offers right below its field (for a level-up: `{name}`, `{level}` and
+`{previousLevel}`). A placeholder you mis-spell is left in the message verbatim so the mistake is
+visible rather than silently blank, and **clearing a template mutes that announcement** just as
+unticking it does.
+
+Announcements go through the same send pipeline as everything else, so they honour your **send mode**
+— in **Silent** they only appear in the Messages pane, in **Review** you get to edit before sending —
+along with length chunking and message pacing.
+
+This is a general capability rather than a one-off: level-up is simply the first entry in the
+announcement registry ([`pages/announcements.mjs`](pages/announcements.mjs)), and the Settings window
+builds its fields from that registry, so future rider events slot in the same way.
+
+### Why level-ups behave oddly
+
+Level is the one value the mod reads from a rider's Zwift **profile** instead of the live data
+stream, and Sauce loads and refreshes profiles in the background. Every oddity below follows from
+that, and none of it is something the mod can see around — so it's worth knowing what you're looking
+at before you wonder why chat just congratulated nobody, or congratulated someone late:
+
+- **Level-ups are late — up to about five minutes.** Sauce re-reads each rider's profile roughly
+  every five minutes, so a level-up is noticed at the next refresh, not when it happens in game.
+  There is no faster signal available; instantaneous is unfortunately not on the menu.
+- **A rider who has just joined the group may show a stale level** — the one they were on the last
+  time you rode with them — for the second or two before their profile loads. Riders whose profile
+  hasn't loaded at all are missing from the level standings, and some first appear as **Level 1**.
+- **Only a rise of exactly one level is announced.** Nobody gains two levels in an instant, so a
+  bigger jump (Lv 30 → Lv 34) is always a profile catching up, and is passed over in silence.
+- **Rises are ignored for the first minute after a rider appears**, and for the first five minutes
+  for someone first seen at Level 1 (which usually means their profile hadn't really loaded). This
+  is what stops a settling profile from reading as a level-up.
+- **So a real level-up in a rider's first minute in the group is missed.** Given the refresh lag
+  above, most level-ups surface well after that window, so this is rare — and the alternative is
+  congratulating half the group as they join.
+- **Levels gained** in the ride totals counts confirmed level-ups only, matching what was announced.
+
+Two switches in **Settings → Rider announcements** if you'd rather trade differently:
+
+- **Announce: Level up** — untick (or clear the message template) to turn level-up announcements off
+  entirely.
+- **Ignore level changes just after a rider joins** — on by default. Untick it to announce every
+  one-level rise the instant it is seen: earlier, but you will get some false congratulations for
+  riders who have only just joined. It cannot make announcements instant — the five-minute profile
+  refresh is Sauce's, not the mod's — so this only helps for riders in their first minute.
 
 ## Send modes (staged rollout)
 
@@ -215,6 +282,17 @@ so you can preview a joke without posting it.
 - Sauce's `nearby` list is capped at **100 riders**; larger events will drop riders from the list.
 - Around **intersections**, `nearby` won't list riders on the *other side* of the intersection — they drop out of the list until the group is back together on a shared stretch of road.
 - **Interim handling:** if a tracked rider disappears from `nearby`, we keep scoring them using their last known gap (carry-forward).
+- **Drops can't be scored or totalled.** Sauce doesn't expose Zwift drops anywhere — neither on the
+  per-tick player state nor on the athlete profile it builds — so there is no data behind a
+  drops game or a drops ride total. (The only mention in the host source is the `curRideStreakDrops`
+  / `maxRideStreakDrops` ride-streak fields in `zwift.proto`, which Sauce never decodes.) If Sauce
+  starts exposing drops, both drop straight into the existing game/metric registries.
+- **Levels lag, and settle.** Level is read from the rider's profile rather than the live state
+  stream, so level standings, the levels-gained total, and the level-up announcement all follow
+  Sauce's profile-refresh cadence — up to about five minutes. A rider's first readings after they
+  appear can be stale or missing, so a rise counts as a real level-up only when it is exactly one
+  level and the rider's reading has had time to settle. Both the announcement and the settling delay
+  can be switched off — see [Why level-ups behave oddly](#why-level-ups-behave-oddly).
 - The Control window logs carry-forwards, list saturation, leader-visibility gaps, and large per-tick `gapDistance` jumps, and can **export** the full session (JSON + CSV) for offline analysis of intersection behavior.
 
 ## Development: record & replay real rides
@@ -237,10 +315,11 @@ Cutting a release and listing the mod in the Sauce Mod Store are documented sepa
 `1.0.0` — nine games chosen from a game picker (Closest to Leader, Average Power, Cadence Challenge,
 Max Power, Max Cadence, Max Torque, Torque Near Leader, Draft Master, Ride-Ons Received), scoring by
 average / peak / delta, with the round **Duration** on the main window; a **Since event start**
-metric viewer plus whole-ride totals (miles, pedal strokes, ride-ons, calories); all scores to 2
-decimal places. Silent-mode-first, with a live chat-link indicator (red/green) and version +
-attribution shown in the window title. See the diagnostics export while we work out intersection
-handling.
+metric viewer (now including Zwift level, sorted either way) plus whole-ride totals (miles, pedal
+strokes, ride-ons, calories, levels gained); configurable **rider announcements**, starting with a
+level-up congratulation; all scores to 2 decimal places. Silent-mode-first, with a live chat-link
+indicator (red/green) and version + attribution shown in the window title. See the diagnostics export
+while we work out intersection handling.
 
 ## License
 

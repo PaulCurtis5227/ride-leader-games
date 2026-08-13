@@ -16,6 +16,11 @@
  * rider this tick (missing sensor / not applicable). Fields verified against sauce4zwift/src/zwift.mjs
  * `processPlayerStateMessage`: state.power (W), state.cadence (rpm, 0 when coasting), state.speed,
  * state.distance (cumulative m), state.kj (cumulative kJ of work), rideons (cumulative count).
+ *
+ * One reader (readLevel) comes off the ATHLETE half of the entry rather than the state stream — see
+ * its comment. Note there is no drops reader: Zwift drops are not exposed by Sauce at all (the only
+ * mention in the host source is curRideStreakDrops/maxRideStreakDrops in zwift.proto, ride-streak
+ * profile stats Sauce never decodes), so nothing here can score or total them.
  */
 
 // Crank-arm length in metres. Torque itself does NOT depend on crank length; this is kept so the
@@ -65,6 +70,18 @@ export function readKj(entry) {
 export function readRideons(entry) {
     const s = state(entry);
     return s ? num(s.rideons) : null;
+}
+
+/*
+ * Zwift level (whole levels). Unlike every other reader here this comes from the rider's PROFILE,
+ * not the per-tick state stream: sauce4zwift/src/stats.mjs `_profileToAthlete` sets
+ * `level = floor(achievementLevel / 100)` on the athlete record carried by each nearby entry. It
+ * therefore only changes when Sauce refreshes that profile, so a level-up is observed some time
+ * after it actually happens in game, and is `undefined` until the profile has been fetched at all.
+ */
+export function readLevel(entry) {
+    const a = entry && entry.athlete;
+    return a ? num(a.level) : null;
 }
 
 /*

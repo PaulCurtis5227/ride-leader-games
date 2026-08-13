@@ -36,6 +36,21 @@ body {
 .instr-tools { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .instr-note { font-size: 0.85em; opacity: 0.7; }
 
+/* rider announcements — generated from the announcements.mjs registry (see settings.mjs) */
+.section-head { margin: 0.4rem 0 0; font-size: 1em; opacity: 0.8; }
+.announcements { display: grid; gap: 0.6rem; }
+.announcement {
+    display: grid;
+    gap: 0.25rem;
+    padding: 0.5rem;
+    border: 1px solid var(--rlg-border);
+    border-radius: 5px;
+}
+.ann-tokens { font-size: 0.85em; opacity: 0.7; }
+.ann-tokens code { background: rgba(255, 255, 255, 0.09); border-radius: 3px; padding: 0 0.2em; }
+/* explanatory line under an announcement's extra option switches */
+.ann-note { font-size: 0.85em; opacity: 0.7; margin: -0.15rem 0 0.1rem 1.45rem; }
+
 .rlg-btn {
     background: rgba(255, 255, 255, 0.09);
     color: inherit;

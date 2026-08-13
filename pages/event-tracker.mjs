@@ -20,10 +20,14 @@
  * (e.g. when a new Zwift event begins). Metrics that need a moving reference rider (leader-distance,
  * the proximity games) are intentionally not offered here — they're round-scoped by nature — so the
  * viewer lists the self-contained metrics only.
+ *
+ * `ingest()` also DETECTS rider events (a rider's level going up today; more later) and returns them
+ * so the caller can announce them. The tracker only spots and describes them — what, if anything, is
+ * said about one is announcements.mjs' business.
  */
 
 import {
-    readPower, readCadence, readTorque, readRideons, readDistance, readKj, KJ_PER_KCAL,
+    readPower, readCadence, readTorque, readRideons, readDistance, readKj, readLevel, KJ_PER_KCAL,
 } from './metrics.mjs';
 
 const METERS_PER_MILE = 1609.344;
@@ -31,6 +35,25 @@ const METERS_PER_MILE = 1609.344;
 // A rider that vanished (intersection / list cap) leaves a stale lastTs; cap the integration step so
 // their reappearance can't dump a huge chunk of pedal strokes in one tick.
 const MAX_STEP_MS = 3000;
+
+/*
+ * LEVEL SETTLING (see the level-up block in ingest()). A level reading is only believable once the
+ * rider's profile has actually been fetched, which happens a beat AFTER they first show up in
+ * `nearby` — until then the reading is whatever stale value Sauce had cached from a previous ride,
+ * or nothing at all. So we distrust any rise in the first LEVEL_SETTLE_MS a rider is known to us.
+ * The host re-fetches each profile about every 5 minutes (stats.mjs `goodDefer`), so a genuine
+ * level-up is seen up to that long after the fact anyway — a minute of initial quiet costs nothing.
+ */
+const LEVEL_SETTLE_MS = 60_000;
+
+/*
+ * A first reading at or below this level almost certainly means "no real profile yet" rather than a
+ * genuine novice, so it gets a longer, full-profile-refresh-cycle probation before we will believe a
+ * rise off it. Without this, every newly-seen rider who starts out as a Level 1 announces a level-up
+ * the moment their real profile lands.
+ */
+const LEVEL_PROVISIONAL = 1;
+const LEVEL_PROVISIONAL_SETTLE_MS = 300_000;
 
 function nameOf(entry) {
     const a = entry && entry.athlete;
@@ -79,6 +102,12 @@ export const METRICS = [
         value: r => r.strokes, format: v => `${v.toFixed(2)} strokes`},
     {key: 'calories', name: 'Calories burnt', unit: 'kcal', higherIsBetter: true,
         value: r => delta(r.kjFirst, r.kjLast) / KJ_PER_KCAL, format: v => `${v.toFixed(2)}kcal`},
+    // Two views of the same reading — the group's most and least experienced riders. Both show the
+    // rider's CURRENT level (not a gain), they differ only in sort direction.
+    {key: 'level-desc', name: 'Level (highest first)', unit: 'level', higherIsBetter: true,
+        value: r => r.levelLast, format: v => `Lv ${v.toFixed(2)}`},
+    {key: 'level-asc', name: 'Level (lowest first)', unit: 'level', higherIsBetter: false,
+        value: r => r.levelLast, format: v => `Lv ${v.toFixed(2)}`},
 ];
 
 export const DEFAULT_METRIC_KEY = METRICS[0].key;
@@ -92,8 +121,19 @@ export function getMetric(key) {
 
 export class EventTracker {
 
-    constructor() {
+    /*
+     * `config.levelSettling` (default true) is the leader-facing switch behind the level-settling
+     * rules above: turn it off and a +1 rise is announced the moment it is seen, no matter how
+     * new the rider is. The impossible-jump rule is NOT part of the switch — a rider never gains
+     * two levels in an instant, so that is always data settling, never news.
+     */
+    constructor(config = {}) {
+        this.config = {levelSettling: true, ...config};
         this.reset();
+    }
+
+    setConfig(config) {
+        Object.assign(this.config, config);
     }
 
     reset(nowMs = null) {
@@ -118,6 +158,7 @@ export class EventTracker {
                 distFirst: null, distLast: null,
                 kjFirst: null, kjLast: null,
                 rideonFirst: null, rideonLast: null,
+                levelLast: null, levelSeenAt: null, levelUps: 0,
                 strokes: 0,
                 lastTs: null,
             };
@@ -126,10 +167,15 @@ export class EventTracker {
         return rec;
     }
 
-    // Feed one `nearby` snapshot. Called every tick regardless of game state.
+    /*
+     * Feed one `nearby` snapshot. Called every tick regardless of game state. Returns the rider
+     * events detected in this snapshot (see LEVEL-UP below) — always an array, empty when nothing
+     * happened — for the caller to announce.
+     */
     ingest(entries, nowMs) {
+        const events = [];
         if (!Array.isArray(entries) || !entries.length) {
-            return;
+            return events;
         }
         if (this.startTime == null) {
             this.startTime = nowMs;
@@ -186,8 +232,44 @@ export class EventTracker {
                 }
                 rec.rideonLast = ro;
             }
+            /*
+             * LEVEL-UP. Level is not a live reading: it comes off the rider's cached PROFILE, which
+             * Sauce fills in asynchronously (see readLevel in metrics.mjs). So the first ticks after
+             * a rider appears can report nothing, or a level left over from a previous ride, before
+             * the server refresh lands a second or two later — and that arrival looks exactly like a
+             * rise. Announcing those is what made level-ups fire constantly as riders joined. Three
+             * rules keep a settling profile quiet, and let a real level-up through:
+             *   - the first level we ever see is a baseline, never an event;
+             *   - a rise of MORE than one level never happens in an instant, so it is the profile
+             *     catching up (e.g. cached Lv 30 -> real Lv 34): re-baseline in silence;
+             *   - even a +1 rise is only believed once the rider's reading has had time to settle —
+             *     LEVEL_SETTLE_MS from when we first saw them, or the much longer probation for a
+             *     baseline of Lv 1 or less, which usually means the profile had not loaded at all.
+             * Anything rejected still updates levelLast, so the standings show the best value we
+             * have and the next genuine +1 is measured from it. A leader who would rather have the
+             * announcement early and occasionally wrong turns the settle windows off with the
+             * `levelSettling` config flag (the settings window's "Ignore level changes just after a
+             * rider joins"); the impossible-jump rule always applies.
+             */
+            const lv = readLevel(e);
+            if (lv != null) {
+                if (rec.levelLast == null) {
+                    rec.levelSeenAt = nowMs;   // anchors the settle window on first sighting
+                } else if (lv !== rec.levelLast) {
+                    const settleMs = this.config.levelSettling === false ? 0
+                        : (rec.levelLast <= LEVEL_PROVISIONAL
+                            ? LEVEL_PROVISIONAL_SETTLE_MS : LEVEL_SETTLE_MS);
+                    if (lv === rec.levelLast + 1 && nowMs - rec.levelSeenAt >= settleMs) {
+                        rec.levelUps++;
+                        events.push({type: 'level-up', athleteId: rec.athleteId, name: rec.name,
+                            from: rec.levelLast, to: lv, at: nowMs});
+                    }
+                }
+                rec.levelLast = lv;
+            }
             rec.lastTs = nowMs;
         }
+        return events;
     }
 
     // Ranked standings for one metric since event start, best first.
@@ -207,12 +289,15 @@ export class EventTracker {
 
     // Whole-ride aggregate totals across every tracked rider.
     rideTotals() {
-        let meters = 0, strokes = 0, rideOns = 0, kj = 0;
+        let meters = 0, strokes = 0, rideOns = 0, kj = 0, levelsGained = 0;
         for (const rec of this.athletes.values()) {
             meters += delta(rec.distFirst, rec.distLast);
             strokes += rec.strokes;
             rideOns += delta(rec.rideonFirst, rec.rideonLast);
             kj += delta(rec.kjFirst, rec.kjLast);
+            // Confirmed level-ups only — NOT last − first, which counts a settling profile (a stale
+            // cached level being replaced by the real one) as a fistful of levels gained.
+            levelsGained += rec.levelUps;
         }
         return {
             riders: this.athletes.size,
@@ -220,6 +305,7 @@ export class EventTracker {
             strokes,
             rideOns,
             calories: kj / KJ_PER_KCAL,
+            levelsGained,
         };
     }
 }

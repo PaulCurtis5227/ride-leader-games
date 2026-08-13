@@ -15,6 +15,7 @@ import * as Common from '/pages/src/common.mjs';
 import {RideLeaderGame, SEND_MODES, STATES, chunkMessage, instructionMessages} from './engine.mjs';
 import {GAMES, getGame, DEFAULT_GAME_KEY} from './games.mjs';
 import {EventTracker, METRICS, getMetric, DEFAULT_METRIC_KEY} from './event-tracker.mjs';
+import {announcementDefaults, announcementMessages} from './announcements.mjs';
 import {getSauceStreams} from './s4z-streams.mjs';
 import {JokeDeck} from './jokedeck.mjs';
 import {JOKES} from './jokes-data.mjs';
@@ -57,6 +58,9 @@ const SETTING_DEFAULTS = {
     answerDelay: 8,          // seconds between a joke's setup and its punchline
     jokePrefix: '\u{1F602}', // 😂 prepended to joke messages (empty to disable)
     eventMetric: DEFAULT_METRIC_KEY,   // which metric the "since event start" viewer shows
+    // One on/off flag + one message template per rider-event announcement, straight from the
+    // registry — adding an announcement never needs an edit here (see announcements.mjs).
+    ...announcementDefaults(),
 };
 
 let game;
@@ -140,6 +144,9 @@ function readConfigIntoEngine() {
         chatPrefix: get('chatPrefix') ?? '',
         leaderId: get('leaderId') != null ? Number(get('leaderId')) : null,
     });
+    // The tracker's only tunable: whether level-up detection waits for a new rider's profile to
+    // settle (see the LEVEL SETTLING notes in event-tracker.mjs).
+    tracker.setConfig({levelSettling: get('levelUpSettling') !== false});
 }
 
 
@@ -219,6 +226,7 @@ function renderEvent() {
         ['Pedal strokes', Math.round(t.strokes).toLocaleString()],
         ['Ride-ons', Math.round(t.rideOns).toLocaleString()],
         ['Calories', Math.round(t.calories).toLocaleString()],
+        ['Levels gained', Math.round(t.levelsGained).toLocaleString()],
     ].map(([label, val]) => `
         <div class="ride-total">
             <span class="rt-val">${val}</span>
@@ -602,8 +610,9 @@ function onNearby(entries) {
     updateReference(entries);
     readConfigIntoEngine();
     // The event tracker runs continuously (independent of game rounds) so the "since event start"
-    // viewer and ride-wide totals accumulate whether or not a game is active.
-    tracker.ingest(entries, clockNow());
+    // viewer and ride-wide totals accumulate whether or not a game is active. It also reports the
+    // rider events it spotted this tick (level-ups today) for announcing.
+    announceRiderEvents(tracker.ingest(entries, clockNow()));
     if (game.state === STATES.RUNNING) {
         game.ingest(entries, clockNow());
         if (game.state === STATES.FINISHED) {   // ingest auto-finished on time-up
@@ -615,6 +624,17 @@ function onNearby(entries) {
     renderBoard();
     renderEvent();
     renderDiag();
+}
+
+/*
+ * Announce the rider events the tracker just spotted (a level-up today; the registry is open-ended).
+ * The registry decides which are enabled and how they read; these go through the normal send
+ * pipeline, so they honour Silent/Review/Auto, chunking and pacing like every other message.
+ */
+function announceRiderEvents(events) {
+    for (const text of announcementMessages(events, get)) {
+        enqueueMessage(text);
+    }
 }
 
 /*
