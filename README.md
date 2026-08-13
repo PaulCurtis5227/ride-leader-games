@@ -312,6 +312,10 @@ Cutting a release and listing the mod in the Sauce Mod Store are documented sepa
 
 ## Status
 
+`1.0.1` — fixes the Messages pane timestamp, which showed `0:00` on every message unless a game was
+running (it was stamping time since the current game's start); messages now carry a local
+time-of-day.
+
 `1.0.0` — nine games chosen from a game picker (Closest to Leader, Average Power, Cadence Challenge,
 Max Power, Max Cadence, Max Torque, Torque Near Leader, Draft Master, Ride-Ons Received), scoring by
 average / peak / delta, with the round **Duration** on the main window; a **Since event start**
