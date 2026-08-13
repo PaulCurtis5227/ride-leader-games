@@ -183,7 +183,8 @@ section, details {
 .review-text { width: 100%; box-sizing: border-box; resize: vertical; min-height: 2.4rem; font: inherit; }
 .review-actions { display: flex; gap: 0.4rem; margin-top: 0.3rem; }
 .outbox { list-style: none; margin: 0; padding: 0; max-height: 150px; overflow: auto; font-size: 0.78rem; }
-.outbox li { display: grid; grid-template-columns: 2.6rem 1fr auto; gap: 0.4rem; padding: 0.12rem 0; opacity: 0.9; }
+/* first column holds a H:MM:SS time-of-day stamp */
+.outbox li { display: grid; grid-template-columns: 3.6rem 1fr auto; gap: 0.4rem; padding: 0.12rem 0; opacity: 0.9; }
 .outbox .ts { opacity: 0.5; font-variant-numeric: tabular-nums; }
 .outbox .st { font-size: 0.68rem; text-transform: uppercase; opacity: 0.6; }
 .outbox .status-sent .st { color: var(--rlg-accent); }

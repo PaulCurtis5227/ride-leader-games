@@ -158,6 +158,14 @@ function fmtClock(ms) {
     return `${m}:${String(s % 60).padStart(2, '0')}`;
 }
 
+// Local time-of-day for message-log stamps. Messages happen whether or not a game is running (jokes,
+// announcements, manual sends), so the log can't stamp them relative to a game clock.
+function fmtTimeOfDay(ms) {
+    const d = new Date(ms);
+    return [d.getHours(), d.getMinutes(), d.getSeconds()]
+        .map((v, i) => i ? String(v).padStart(2, '0') : String(v)).join(':');
+}
+
 function renderClock() {
     const now = clockNow();
     if (starting) {
@@ -239,7 +247,7 @@ function renderOutbox() {
     els.queueDepth.textContent = sendQueue.length ? `· ${sendQueue.length} queued` : '';
     els.outbox.innerHTML = outbox.slice(-40).reverse().map(o => `
         <li class="status-${o.status}">
-            <span class="ts">${fmtClock(o.t - (game.startTime || o.t))}</span>
+            <span class="ts">${fmtTimeOfDay(o.t)}</span>
             <span class="msg">${Common.sanitize(o.text)}</span>
             <span class="st">${o.status}</span>
         </li>`).join('');
