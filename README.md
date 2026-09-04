@@ -6,11 +6,11 @@ Over a configurable duration the mod scores every nearby rider and announces the
 winners in chat. Which metric it scores is chosen from a **game picker** in the Control window; nine
 games ship today (see [Games](#games)), scoring by **average**, **peak**, or **ride-ons received**.
 Separately, a **Since event start** panel tracks any metric — plus whole-ride totals for the group,
-sendable to chat as a summary — across the entire ride, independently of the timed games, and
-**rider announcements** congratulate
-riders in chat when something happens to them (a level-up today). A **Riders** panel remembers who
-rides with you week after week, so you can welcome the newcomers and celebrate ride milestones at a
-moment you choose. All scored values are reported to two decimal places.
+sendable to chat as a summary — across the entire ride, independently of the timed games, and **rider
+announcements** congratulate riders in chat when something happens to them (a level-up today). A
+**Riders** panel remembers who rides with you week after week, so you can welcome the newcomers and
+celebrate ride milestones at a moment you choose. All scored values are reported to two decimal
+places.
 
 > [!IMPORTANT]
 > **Sending chat requires Sauce's Game Connection to be enabled — which effectively means you can't
@@ -111,38 +111,19 @@ works](#how-scoring-works)):
   cadence)`, so big gears at low cadence score.
 - **Ride-Ons Received** — most **ride-ons received during the round** wins.
 
-## Only the riders on your ride count
+## Who counts
 
-Zwift's nearby list is *everyone on the same stretch of road*, not everyone on your ride. On a real
-30-rider group ride that meant **64 riders**: 29 in the event and 35 strangers, a third of them
-arriving in one lump at the end when the group rolled through another event's start pen. Left alone
-they turn up in the leaderboard, in the **Since event start** standings, in the ride totals, and
-eventually in your rider history as regulars of a ride they were never on.
-
-So when you're in a Zwift **event**, riders who are not in it are ignored — everywhere, before
-anything sees them:
-
-- A rider counts from the first tick they're seen in your event's subgroup, and **keeps counting for
-  the rest of the ride**. Riders who finish the event and roll on with the group stop reporting a
-  subgroup at all (4 of the 29 above did), and riders vanish from the list at intersections; neither
-  should quietly stop counting.
-- The **ride leader always counts**, registered or not — leaders often aren't signed up to their own
-  ride, and neither is whoever is running the mod.
-- Riders who **join late** are picked up as soon as they're in the event.
-- Filtering is per **subgroup**, so riders in another pen of the same event don't count — you lead one
-  group, not the whole event.
-
-The rider count under the ride-leader picker shows both sides of this, e.g.
+In a Zwift **event**, only the riders on your ride count — towards the games, the **Since event
+start** panel, the ride totals and your rider history. Everyone else nearby is ignored, and the count
+under the ride-leader picker shows both numbers, e.g.
 `21 on the ride · 33 nearby ignored (not in the event)`.
 
-This also protects your **rider history**: a rider counts towards a ride from their *first* sighting
-(so dropping out at an intersection can't reset their clock), which on its own means a stranger
-glimpsed once would be credited a ride a few minutes later. On the ride above that would have been 64
-riders credited instead of 29.
-
-Outside an event — a free ride, or an event Zwift doesn't report — nothing is filtered and the
-"minutes with the group" setting remains the only passer-by filter. You can switch the whole thing off
-with **Settings ▸ Who counts**.
+- Membership sticks: a rider counts from the first time they're seen on your ride and keeps counting
+  for the rest of it, so finishing the event or dropping out of sight at an intersection doesn't
+  un-ride them. The **ride leader always counts**, registered or not.
+- **Outside** an event — a free ride, or a meetup Zwift doesn't report as one — nothing is filtered,
+  so the **minutes with the group** setting is your only passer-by filter.
+- **Settings ▸ Who counts** turns the filtering off.
 
 ## How scoring works
 
@@ -231,10 +212,9 @@ On your very first ride the panel will offer to welcome your entire group, inclu
 years. Press **Mark all as known** once and they're recorded as already-welcomed, silently.
 
 This is unavoidable rather than an oversight: **attendance from before you started using the mod
-cannot be recovered.** Sauce can fetch a past event's roster if you already know that occurrence's
-subgroup id, but nothing can *find* last week's event — there's no search-by-name-or-date, and the
-event feed only walks backwards in 1.5-hour hops. So the record starts the day you turn this on, and
-ride counts mean "rides with us since then" rather than a Zwift-wide total.
+cannot be recovered** — Zwift offers no way to look up who was on last week's ride. So the record
+starts the day you turn this on, and ride counts mean "rides with us since then" rather than a
+Zwift-wide total.
 
 ### It follows the event, not you
 
@@ -387,11 +367,9 @@ so you can preview a joke without posting it.
 ## Known limitations / diagnostics
 
 - Sauce's `nearby` list is capped at **100 riders**; larger events will drop riders from the list.
-- **Riders outside your event are ignored** (see [Only the riders on your ride
-  count](#only-the-riders-on-your-ride-count)) — but only when the event can be identified. On a free
-  ride, in a meetup Zwift doesn't report as an event, or in the first seconds before the event lookup
-  lands, everyone nearby counts. (Anything the tracker picked up during that lookup is dropped again
-  once the event is known.)
+- **Riders outside your event are ignored** (see [Who counts](#who-counts)) — but only when the event
+  can be identified. On a free ride, in a meetup Zwift doesn't report as an event, or in the first
+  seconds before the event lookup lands, everyone nearby counts.
 - Around **intersections**, `nearby` won't list riders on the *other side* of the intersection — they drop out of the list until the group is back together on a shared stretch of road.
 - **Interim handling:** if a tracked rider disappears from `nearby`, we keep scoring them using their last known gap (carry-forward).
 - **Drops can't be scored or totalled.** Sauce doesn't expose Zwift drops anywhere — neither on the
@@ -431,10 +409,7 @@ Cutting a release and listing the mod in the Sauce Mod Store are documented sepa
 
 ## Status
 
-`1.1.0` — **in an event, only riders in the event count**: a real 30-rider group ride reported 64
-riders in the metric viewer, most of them strangers sharing the road. Membership sticks for the whole
-ride (leaving the event or dropping out at an intersection doesn't un-ride you), the ride leader counts
-whether or not they're registered, and it can be turned off in **Settings ▸ Who counts**. Also a
+`1.1.0` — **in an event, only riders in the event count** — see [Who counts](#who-counts). Also a
 **Riders** panel backed by persistent, ride-over-ride rider history: welcome riders who
 have never been greeted, and celebrate 10/50/100+ ride milestones — one message per bucket, sent when
 you press the button rather than automatically. History is keyed to the *event* (Zwift's event series
