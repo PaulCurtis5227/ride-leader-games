@@ -20,6 +20,7 @@ import * as Common from '/pages/src/common.mjs';
 import {getGame, DEFAULT_GAME_KEY} from './games.mjs';
 import {ANNOUNCEMENTS} from './announcements.mjs';
 import {instructionMessages} from './engine.mjs';
+import {RiderHistory} from './rider-history.mjs';
 
 const settings = Common.settingsStore;
 
@@ -64,6 +65,8 @@ function buildAnnouncementFields() {
                 <input type="checkbox" name="${a.enabledSetting}"${a.defaultEnabled ? ' checked' : ''}/>
                 Announce: ${Common.sanitize(a.name)}
             </label>
+            ${a.manual ? '<div class="ann-note">Sent when you press the button in the control ' +
+                'window’s Riders panel, never automatically.</div>' : ''}
             <label>${Common.sanitize(a.description)}
                 <textarea name="${a.templateSetting}" rows="2">${Common.sanitize(a.defaultTemplate)}</textarea>
             </label>
@@ -123,7 +126,71 @@ export async function settingsMain() {
         instructionsFile.value = '';           // allow re-loading the same file later
     });
 
+    wireHistoryBackup();
+
     // The game is picked in the control window; when it changes (and instructions are still unset)
     // refresh the shown default so it always reflects what Start will send.
     settings.addEventListener('set', () => showDefaultInstructionsIfUnset());
+}
+
+/*
+ * Export / import the rider-history ledger. It is the only state the mod cannot rebuild — attendance
+ * from past rides is not recoverable from Zwift or Sauce (see rider-history.mjs) — so a backup, and a
+ * way to carry it to another machine, matters more here than anywhere else in the mod.
+ *
+ * This window reads the same localStorage key as the control window. An import while a ride is in
+ * progress would be overwritten by the control window's next flush, hence the warning.
+ */
+function wireHistoryBackup() {
+    const note = document.querySelector('#historyNote');
+    const fileEl = document.querySelector('#historyFile');
+    const exportBtn = document.querySelector('#btnExportHistory');
+    const importBtn = document.querySelector('#btnImportHistory');
+    if (!note || !fileEl || !exportBtn || !importBtn) {
+        return;
+    }
+    const history = new RiderHistory({storage: window.localStorage});
+
+    const describe = () => {
+        history.load();
+        const series = history.listSeries();
+        const riders = series.reduce((n, s) => n + s.riders, 0);
+        note.textContent = series.length ?
+            `${series.length} ride${series.length === 1 ? '' : 's'}, ${riders} rider${
+                riders === 1 ? '' : 's'}: ` + series.map(s => `${s.label} (${s.sessions})`).join(', ') :
+            'No history yet.';
+    };
+    describe();
+
+    exportBtn.addEventListener('click', () => {
+        history.load();
+        const blob = new Blob([history.exportJSON()], {type: 'application/json'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `rlg-rider-history-${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+
+    importBtn.addEventListener('click', () => fileEl.click());
+    fileEl.addEventListener('change', async () => {
+        const file = fileEl.files && fileEl.files[0];
+        fileEl.value = '';                       // allow re-loading the same file later
+        if (!file) {
+            return;
+        }
+        try {
+            history.load();                      // so a failed import leaves what was there
+            history.importJSON(await file.text());
+            history.save();
+            describe();
+            note.textContent += ' — imported. Close the control window first if a ride is running, ' +
+                'or its next update will overwrite this.';
+        } catch(e) {
+            note.textContent = `Import failed: ${e.message}`;
+        }
+    });
 }

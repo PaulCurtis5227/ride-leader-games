@@ -7,8 +7,9 @@ winners in chat. Which metric it scores is chosen from a **game picker** in the 
 games ship today (see [Games](#games)), scoring by **average**, **peak**, or **ride-ons received**.
 Separately, a **Since event start** panel tracks any metric — plus whole-ride totals for the group —
 across the entire ride, independently of the timed games, and **rider announcements** congratulate
-riders in chat when something happens to them (a level-up today). All scored values are reported to
-two decimal places.
+riders in chat when something happens to them (a level-up today). A **Riders** panel remembers who
+rides with you week after week, so you can welcome the newcomers and celebrate ride milestones at a
+moment you choose. All scored values are reported to two decimal places.
 
 > [!IMPORTANT]
 > **Sending chat requires Sauce's Game Connection to be enabled — which effectively means you can't
@@ -67,10 +68,11 @@ Then in Sauce: **Settings → Mods**, enable *Ride Leader Games*, and restart Sa
 One window becomes available:
 
 - **Ride Leader Games — Control** — the leader's panel: game picker + round **Duration**, live
-  leaderboard, a **Since event start** metric viewer and ride totals, Start/Stop/Reset, chat review
-  queue, a bicycle-joke sender, and diagnostics. A **settings gear (⚙)** in the title bar opens a
-  separate Settings window for the rest of the configuration (send mode, prefixes, instructions,
-  announce options, font scale, etc.).
+  leaderboard, a **Since event start** metric viewer and ride totals, a **Riders** panel for welcoming
+  newcomers and marking ride milestones, Start/Stop/Reset, chat review queue, a bicycle-joke sender,
+  and diagnostics. A **settings gear (⚙)** in the title bar opens a separate Settings window for the
+  rest of the configuration (send mode, prefixes, instructions, announce options, rider history,
+  font scale, etc.).
 
 Mod windows pick up new HTML/JS/CSS on **reopen**; new mods or `manifest.json` changes need a **full
 Sauce restart**.
@@ -108,6 +110,39 @@ works](#how-scoring-works)):
   cadence)`, so big gears at low cadence score.
 - **Ride-Ons Received** — most **ride-ons received during the round** wins.
 
+## Only the riders on your ride count
+
+Zwift's nearby list is *everyone on the same stretch of road*, not everyone on your ride. On a real
+30-rider group ride that meant **64 riders**: 29 in the event and 35 strangers, a third of them
+arriving in one lump at the end when the group rolled through another event's start pen. Left alone
+they turn up in the leaderboard, in the **Since event start** standings, in the ride totals, and
+eventually in your rider history as regulars of a ride they were never on.
+
+So when you're in a Zwift **event**, riders who are not in it are ignored — everywhere, before
+anything sees them:
+
+- A rider counts from the first tick they're seen in your event's subgroup, and **keeps counting for
+  the rest of the ride**. Riders who finish the event and roll on with the group stop reporting a
+  subgroup at all (4 of the 29 above did), and riders vanish from the list at intersections; neither
+  should quietly stop counting.
+- The **ride leader always counts**, registered or not — leaders often aren't signed up to their own
+  ride, and neither is whoever is running the mod.
+- Riders who **join late** are picked up as soon as they're in the event.
+- Filtering is per **subgroup**, so riders in another pen of the same event don't count — you lead one
+  group, not the whole event.
+
+The rider count under the ride-leader picker shows both sides of this, e.g.
+`21 on the ride · 33 nearby ignored (not in the event)`.
+
+This also protects your **rider history**: a rider counts towards a ride from their *first* sighting
+(so dropping out at an intersection can't reset their clock), which on its own means a stranger
+glimpsed once would be credited a ride a few minutes later. On the ride above that would have been 64
+riders credited instead of 29.
+
+Outside an event — a free ride, or an event Zwift doesn't report — nothing is filtered and the
+"minutes with the group" setting remains the only passer-by filter. You can switch the whole thing off
+with **Settings ▸ Who counts**.
+
 ## How scoring works
 
 The **Closest to Leader** game scores against a chosen ride leader. Sauce's `nearby` stream gives every rider a signed `gapDistance` (meters) relative to **whoever your Sauce instance is watching**. To score against a chosen **ride leader** regardless of who you're watching, we re-base using the leader's own gap as an offset:
@@ -142,10 +177,12 @@ Independently of the timed games, the Control window has a **Since event start**
 accumulates continuously from the moment data starts flowing (or the last **Reset event**):
 
 - **Metric picker** — choose any metric (average or peak power, cadence, or torque; ride-ons;
-  distance; pedal strokes; calories; Zwift level) and see a live leaderboard of every nearby rider
-  for it, computed over the **whole ride** rather than a single game round. Level comes in two
-  flavours — **Level (highest first)** and **Level (lowest first)** — the same reading sorted both
-  ways, so you can see the group's most experienced riders or spot the newcomers to welcome.
+  distance; pedal strokes; calories; Zwift level; rides with us) and see a live leaderboard of every
+  nearby rider for it, computed over the **whole ride** rather than a single game round. Level comes
+  in two flavours — **Level (highest first)** and **Level (lowest first)** — the same reading sorted
+  both ways, so you can see the group's most experienced riders or spot the newcomers to welcome.
+  **Rides with us** (most/fewest first) and **Consecutive rides** come from the rider history below,
+  so you can sort the group by loyalty rather than by watts. Counts are shown as whole numbers.
 - **Ride totals** — headline totals across *all* riders: total **miles ridden**, **pedal strokes**,
   **ride-ons received**, **calories burnt**, and **levels gained** during the ride. (More metrics to
   come.)
@@ -162,6 +199,64 @@ any time. (Leader-relative metrics aren't offered here — they're specific to a
 > level-ups, so that catching-up never inflates it. See
 > [Why level-ups behave oddly](#why-level-ups-behave-oddly) for the whole story.
 
+## Welcoming new riders and celebrating milestones
+
+The **Riders** panel keeps a persistent record of who rides with you, ride after ride, and turns it
+into two things you can say when the moment is right. Nothing is sent automatically: the panel shows
+what's pending and *you* press the button — typically once the group has settled and the late-join
+window has closed.
+
+- **👋 New riders** — everyone present who has never been welcomed to this ride. One message names
+  them all. Because it tracks *never welcomed* rather than *first ride*, someone you missed a few
+  weeks ago is still offered rather than lost.
+- **🎂 Milestones** — riders reaching 10, 50, 100 … rides with you. **One message per milestone**, so
+  a group who all started together on the same week produces a single "celebrating 10 rides"
+  message rather than thirty near-identical ones.
+- **Live pending count** in the panel header (`3 to welcome · 1 milestone`) so you know something is
+  waiting without going looking, plus a hint for when late join closes when the event declares one.
+- **Skip** on any bucket marks it done without saying anything.
+
+Both messages have an on/off switch and an editable template in **Settings ▸ Rider announcements**,
+alongside the automatic ones. The rider list is a *suggestion* — you see exactly who will be named
+before you send, which is why the record doesn't need to be perfect.
+
+### First ride: Mark all as known
+
+On your very first ride the panel will offer to welcome your entire group, including regulars of three
+years. Press **Mark all as known** once and they're recorded as already-welcomed, silently.
+
+This is unavoidable rather than an oversight: **attendance from before you started using the mod
+cannot be recovered.** Sauce can fetch a past event's roster if you already know that occurrence's
+subgroup id, but nothing can *find* last week's event — there's no search-by-name-or-date, and the
+event feed only walks backwards in 1.5-hour hops. So the record starts the day you turn this on, and
+ride counts mean "rides with us since then" rather than a Zwift-wide total.
+
+### It follows the event, not you
+
+A leader may run two different rides a week, and a rider is a regular *of a ride*. So each ride keeps
+its own counts, streaks and welcome list, keyed on Zwift's own **event series** id where the organizer
+configured one, otherwise on the event name with any trailing week number or date stripped.
+
+If that key changes — an organizer renames the event, or a series id disappears — the panel says so
+and offers **"This is that ride"**, which points the new name at the existing history. That prompt
+exists precisely so a rename can't silently start a fresh ledger and make your whole group look new
+again. **Keep separate** is there for when it really is a different ride.
+
+### Tuning it
+
+In **Settings ▸ Rider history**:
+
+- **Milestone ride counts** — the ladder, default `10, 50, 100, 200, 300, 400, 500, 750, 1000`. Keep
+  the gaps wide: a weekly rider hits a milestone roughly once every *gap* weeks, so with a 40-rider
+  group a gap of 50–100 works out to well under one celebration a week.
+- **Minutes with the group before a rider counts** (default 5) — stops riders who merely pass you on
+  the road from becoming regulars.
+- **Names per message before "and N others"** (default 8) — keeps a busy week to a line or two of
+  chat.
+- **Ride name** — used only outside a Zwift event.
+- **Export / Import history** — the ledger is the one thing the mod can't rebuild, so back it up and
+  carry it between machines.
+
 ## Rider announcements
 
 Independently of the games, the mod watches for things that happen *to* a rider and congratulates
@@ -170,6 +265,8 @@ the Settings window (**Rider announcements**):
 
 - **Level up** — sent when a rider in the group gains a Zwift level. Default message:
   `🎉 LEVEL UP! Huge congratulations to {name}, now Level {level}! 🎉`
+- **Welcome new riders** and **Ride milestones** — the two above, sent from the Riders panel rather
+  than automatically. Their templates and switches live here with the rest.
 
 Templates use `{placeholder}` names that are substituted per event; the Settings window lists the
 ones each announcement offers right below its field (for a level-up: `{name}`, `{level}` and
@@ -280,6 +377,11 @@ so you can preview a joke without posting it.
 ## Known limitations / diagnostics
 
 - Sauce's `nearby` list is capped at **100 riders**; larger events will drop riders from the list.
+- **Riders outside your event are ignored** (see [Only the riders on your ride
+  count](#only-the-riders-on-your-ride-count)) — but only when the event can be identified. On a free
+  ride, in a meetup Zwift doesn't report as an event, or in the first seconds before the event lookup
+  lands, everyone nearby counts. (Anything the tracker picked up during that lookup is dropped again
+  once the event is known.)
 - Around **intersections**, `nearby` won't list riders on the *other side* of the intersection — they drop out of the list until the group is back together on a shared stretch of road.
 - **Interim handling:** if a tracked rider disappears from `nearby`, we keep scoring them using their last known gap (carry-forward).
 - **Drops can't be scored or totalled.** Sauce doesn't expose Zwift drops anywhere — neither on the
@@ -293,6 +395,13 @@ so you can preview a joke without posting it.
   appear can be stale or missing, so a rise counts as a real level-up only when it is exactly one
   level and the rider's reading has had time to settle. Both the announcement and the settling delay
   can be switched off — see [Why level-ups behave oddly](#why-level-ups-behave-oddly).
+- **Rider history starts when you turn it on.** Past attendance cannot be recovered from Zwift or
+  Sauce (see [First ride: Mark all as known](#first-ride-mark-all-as-known)), so ride counts and
+  milestones mean "since you started tracking". A rider only counts towards a ride once they've been
+  with the group for the configured few minutes, and the 100-rider cap above means someone present in
+  a very large event may not be seen at all — attendance is a good record, not a perfect one.
+- **The ledger lives in this Sauce profile's local storage.** It isn't synced anywhere, so use
+  **Settings ▸ Rider history ▸ Export history** to back it up or move it to another machine.
 - The Control window logs carry-forwards, list saturation, leader-visibility gaps, and large per-tick `gapDistance` jumps, and can **export** the full session (JSON + CSV) for offline analysis of intersection behavior.
 
 ## Development: record & replay real rides
@@ -311,6 +420,17 @@ Cutting a release and listing the mod in the Sauce Mod Store are documented sepa
 [MAINTAINING.md](MAINTAINING.md) — end users don't need those steps.
 
 ## Status
+
+`1.1.0` — **in an event, only riders in the event count**: a real 30-rider group ride reported 64
+riders in the metric viewer, most of them strangers sharing the road. Membership sticks for the whole
+ride (leaving the event or dropping out at an intersection doesn't un-ride you), the ride leader counts
+whether or not they're registered, and it can be turned off in **Settings ▸ Who counts**. Also a
+**Riders** panel backed by persistent, ride-over-ride rider history: welcome riders who
+have never been greeted, and celebrate 10/50/100+ ride milestones — one message per bucket, sent when
+you press the button rather than automatically. History is keyed to the *event* (Zwift's event series
+where there is one) so two rides a week keep separate counts, with a prompt to re-link a renamed event
+rather than silently starting over. Adds **Rides with us** and **Consecutive rides** metrics, a
+**Mark all as known** seed for your first ride, and export/import of the ledger.
 
 `1.0.1` — fixes the Messages pane timestamp, which showed `0:00` on every message unless a game was
 running (it was stamping time since the current game's start); messages now carry a local

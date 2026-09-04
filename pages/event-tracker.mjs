@@ -75,6 +75,19 @@ function delta(first, last) {
     return (first != null && last != null) ? last - first : 0;
 }
 
+/*
+ * count helper: a whole-number reading (rides, streak) or null when this rider has no history yet.
+ * Counts are the one thing here NOT rendered to two decimals — "12.00 rides" reads as a measurement
+ * rather than a tally. Every other metric (including level) keeps the two-decimal convention.
+ */
+function count(v) {
+    return (v == null || !Number.isFinite(v)) ? null : v;
+}
+
+function plural(v, one, many) {
+    return `${v} ${v === 1 ? one : many}`;
+}
+
 
 /*
  * Selectable metrics for the event viewer. Each: {key, name, unit, higherIsBetter, value(rec),
@@ -108,6 +121,19 @@ export const METRICS = [
         value: r => r.levelLast, format: v => `Lv ${v.toFixed(2)}`},
     {key: 'level-asc', name: 'Level (lowest first)', unit: 'level', higherIsBetter: false,
         value: r => r.levelLast, format: v => `Lv ${v.toFixed(2)}`},
+    /*
+     * The three history metrics. Unlike every other metric these do not come from the `nearby` ticks
+     * at all — they are stamped onto each record from the persistent ledger (see historyLookup in
+     * ingest), so they are null until a rider has been credited with a ride, and null for everyone if
+     * no history is wired up. That is deliberate: the viewer then simply lists nobody instead of
+     * breaking, which is what happens on a free ride before the series is resolved.
+     */
+    {key: 'rides-desc', name: 'Rides with us (most first)', unit: 'rides', higherIsBetter: true,
+        value: r => count(r.rides), format: v => plural(v, 'ride', 'rides')},
+    {key: 'rides-asc', name: 'Rides with us (fewest first)', unit: 'rides', higherIsBetter: false,
+        value: r => count(r.rides), format: v => plural(v, 'ride', 'rides')},
+    {key: 'streak-desc', name: 'Consecutive rides', unit: 'rides', higherIsBetter: true,
+        value: r => count(r.streak), format: v => `${v} in a row`},
 ];
 
 export const DEFAULT_METRIC_KEY = METRICS[0].key;
@@ -126,9 +152,14 @@ export class EventTracker {
      * rules above: turn it off and a +1 rise is announced the moment it is seen, no matter how
      * new the rider is. The impossible-jump rule is NOT part of the switch — a rider never gains
      * two levels in an instant, so that is always data settling, never news.
+     *
+     * `config.historyLookup` (optional) is `athleteId -> {rides, streak, …} | null` from the
+     * persistent ledger (rider-history.mjs). The tracker only COPIES those numbers onto each record
+     * so the history metrics can be viewed alongside the ride's own; it never writes history and
+     * knows nothing about how a ride is counted.
      */
     constructor(config = {}) {
-        this.config = {levelSettling: true, ...config};
+        this.config = {levelSettling: true, historyLookup: null, ...config};
         this.reset();
     }
 
@@ -160,6 +191,8 @@ export class EventTracker {
                 rideonFirst: null, rideonLast: null,
                 levelLast: null, levelSeenAt: null, levelUps: 0,
                 strokes: 0,
+                firstSeenAt: null,   // first tick this rider appeared in (panel: "with us for …")
+                rides: null, streak: null,   // stamped from the persistent ledger, see historyLookup
                 lastTs: null,
             };
             this.athletes.set(entry.athleteId, rec);
@@ -187,6 +220,14 @@ export class EventTracker {
             }
             const rec = this._record(e);
             rec.name = nameOf(e) || rec.name;
+            if (rec.firstSeenAt == null) {
+                rec.firstSeenAt = nowMs;
+            }
+            if (this.config.historyLookup) {
+                const h = this.config.historyLookup(e.athleteId);
+                rec.rides = h ? h.rides : null;
+                rec.streak = h ? h.streak : null;
+            }
 
             const p = readPower(e);
             if (p != null) {
@@ -270,6 +311,24 @@ export class EventTracker {
             rec.lastTs = nowMs;
         }
         return events;
+    }
+
+    /*
+     * Forget every rider the caller no longer counts (`keep(athleteId)` → false). The event a ride
+     * is in takes a moment to resolve when the window opens, so the first ticks can accumulate
+     * riders who turn out not to be on the ride at all (see event-roster.mjs); this drops them
+     * again rather than leaving a one-sample stranger in the standings for the rest of the ride.
+     * Returns how many records were removed.
+     */
+    retain(keep) {
+        let dropped = 0;
+        for (const id of [...this.athletes.keys()]) {
+            if (!keep(id)) {
+                this.athletes.delete(id);
+                dropped++;
+            }
+        }
+        return dropped;
     }
 
     // Ranked standings for one metric since event start, best first.

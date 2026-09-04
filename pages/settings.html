@@ -100,11 +100,57 @@
         <label>Winners to announce
             <input type="number" name="resultsCount" min="1" max="10" step="1" value="5"/>
         </label>
+        <!-- Who counts. The event filter in event-roster.mjs, applied to every tick before the
+             games, the metric viewer, the ride totals and the rider ledger see it. -->
+        <h3 class="section-head">Who counts</h3>
+        <label class="checkbox">
+            <input type="checkbox" name="eventRidersOnly" checked/> In an event, ignore riders who are not in it
+        </label>
+        <div class="hint">Zwift lists every rider on the same road, not just your ride — on a busy
+            world that can double your rider count with people who are not with you. Once a rider has
+            been seen in your event they keep counting for the rest of the ride, even if they leave
+            the event or drop out of the list at an intersection, and the ride leader always counts
+            whether or not they are registered. Outside an event nothing is filtered.</div>
+
         <!-- Rider-event announcements. Built at load from the announcements.mjs registry (one
              on/off checkbox + one editable message template each), so a new announcement type
              needs no markup here. -->
         <h3 class="section-head">Rider announcements</h3>
         <div id="announcements" class="announcements"></div>
+
+        <!-- Rider history: the persistent, ride-over-ride ledger behind the control window's Riders
+             panel (welcome + milestone buckets) and the "Rides with us" metrics. -->
+        <h3 class="section-head">Rider history</h3>
+        <div class="hint">Counts rides with <em>this ride</em> since you started using the mod — there
+            is no way to recover attendance from before that. On your first ride use
+            <strong>Mark all as known</strong> in the Riders panel so long-time regulars are not
+            welcomed as new.</div>
+        <label>Milestone ride counts
+            <input type="text" name="milestoneLadder" value="10, 50, 100, 200, 300, 400, 500, 750, 1000"/>
+        </label>
+        <div class="hint">Each milestone is announced as one message naming everyone who reached it,
+            so a group who all started together produces a single message rather than one per rider.
+            Keep the gaps wide: a rider hits a milestone about once every <em>gap</em> weeks.</div>
+        <label>Minutes with the group before a rider counts as riding
+            <input type="number" name="presenceMinutes" min="0" max="120" step="1" value="5"/>
+        </label>
+        <div class="hint">Stops riders who merely pass you on the road from becoming regulars.</div>
+        <label>Names per message before “and N others”
+            <input type="number" name="maxNamesPerMessage" min="0" max="60" step="1" value="8"/>
+        </label>
+        <div class="hint">0 names everyone, which on a busy week can run to several chat lines.</div>
+        <label>Ride name (used only outside a Zwift event)
+            <input type="text" name="rideSeriesLabel" placeholder="My ride"/>
+        </label>
+        <div class="hint">Inside an event the ride is identified automatically from Zwift's own event
+            series, so history follows the event rather than you.</div>
+        <div class="btn-row">
+            <button type="button" class="rlg-btn small" id="btnExportHistory">Export history</button>
+            <button type="button" class="rlg-btn small" id="btnImportHistory">Import history…</button>
+            <input type="file" id="historyFile" accept=".json,application/json" hidden/>
+        </div>
+        <div class="hint" id="historyNote"></div>
+
         <label class="checkbox">
             <input type="checkbox" name="showDiagnostics" checked/> Show diagnostics
         </label>

@@ -14,8 +14,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    ANNOUNCEMENTS, LEVEL_UP_ANNOUNCEMENT, getAnnouncement, renderTemplate,
-    announcementDefaults, announcementMessages,
+    ANNOUNCEMENTS, LEVEL_UP_ANNOUNCEMENT, WELCOME_ANNOUNCEMENT, MILESTONE_ANNOUNCEMENT,
+    getAnnouncement, renderTemplate, announcementDefaults, announcementMessages,
+    manualAnnouncementMessage, riderNameVars,
 } from '../pages/announcements.mjs';
 
 // A getSetting() over a plain object, mirroring the control window's store-with-defaults accessor.
@@ -39,11 +40,31 @@ test('registry: keys are unique and every entry is fully specified', () => {
     }
 });
 
+// One representative event per registry key, so the checks below cover every entry.
+const SAMPLE = {
+    'level-up': levelUp,
+    'welcome': {names: 'Alice, Bob', count: 2, others: 0},
+    'milestone': {rides: 10, names: 'Alice, Bob', count: 2, others: 0},
+};
+
 test('registry: every declared placeholder is actually produced by vars()', () => {
     // Guards the settings-window hint list against drifting from what substitution really offers.
-    const vars = LEVEL_UP_ANNOUNCEMENT.vars(levelUp);
-    for (const p of LEVEL_UP_ANNOUNCEMENT.placeholders) {
-        assert.ok(Object.prototype.hasOwnProperty.call(vars, p.name), `missing var ${p.name}`);
+    for (const a of ANNOUNCEMENTS) {
+        const sample = SAMPLE[a.key];
+        assert.ok(sample, `no sample event for ${a.key} — add one so this check covers it`);
+        const vars = a.vars(sample);
+        for (const p of a.placeholders) {
+            assert.ok(Object.prototype.hasOwnProperty.call(vars, p.name),
+                `${a.key} is missing var ${p.name}`);
+        }
+    }
+});
+
+test('registry: every default template substitutes fully, leaving no stray placeholder', () => {
+    const get = settings();
+    for (const a of ANNOUNCEMENTS) {
+        const text = renderTemplate(get(a.templateSetting), a.vars(SAMPLE[a.key]));
+        assert.ok(text && !text.includes('{'), `${a.key}: ${text}`);
     }
 });
 
@@ -114,4 +135,58 @@ test('several events in one tick each produce a message, in order', () => {
     const bob = {type: 'level-up', athleteId: 8, name: 'Bob', from: 9, to: 10, at: 1000};
     const msgs = announcementMessages([levelUp, bob], settings({levelUpMessage: '{name}={level}'}));
     assert.deepEqual(msgs, ['Alice=42', 'Bob=10']);
+});
+
+
+// ---- manual announcements ---------------------------------------------------------------------
+// Welcome and milestone are sent from the Riders panel on a button press, not off a detected event.
+
+test('manual announcements are flagged, and the automatic path never emits them', () => {
+    assert.equal(WELCOME_ANNOUNCEMENT.manual, true);
+    assert.equal(MILESTONE_ANNOUNCEMENT.manual, true);
+    assert.ok(!LEVEL_UP_ANNOUNCEMENT.manual, 'a level-up is news the moment it happens');
+
+    // Even if a caller passes one in as though it were a tracker event, it is skipped.
+    assert.deepEqual(announcementMessages([{type: 'welcome', names: 'Alice', count: 1, others: 0}],
+        settings()), []);
+});
+
+test('manualAnnouncementMessage composes welcome and milestone text', () => {
+    const get = settings();
+    const welcome = manualAnnouncementMessage('welcome',
+        {names: 'Alice, Bob', count: 2, others: 0}, get);
+    assert.ok(welcome.includes('Alice, Bob'), welcome);
+    assert.ok(!welcome.includes('{'), welcome);
+
+    const milestone = manualAnnouncementMessage('milestone',
+        {rides: 50, names: 'Carol', count: 1, others: 0}, get);
+    assert.ok(milestone.includes('50'), milestone);
+    assert.ok(milestone.includes('Carol'), milestone);
+});
+
+test('manualAnnouncementMessage honours the on/off switch, a blanked template, and bad keys', () => {
+    const vars = {names: 'Alice', count: 1, others: 0};
+    assert.equal(manualAnnouncementMessage('welcome', vars, settings({announceWelcome: false})), '');
+    assert.equal(manualAnnouncementMessage('welcome', vars, settings({welcomeMessage: '  '})), '',
+        'blanking is a valid way to mute it');
+    assert.equal(manualAnnouncementMessage('nope', vars, settings()), '');
+    assert.equal(manualAnnouncementMessage('level-up', vars, settings()), '',
+        'the automatic announcements are not sendable by hand');
+});
+
+test('riderNameVars names up to the cap and counts the rest', () => {
+    const riders = ['Alice', 'Bob', 'Carol', 'Dave'].map((name, i) => ({athleteId: i, name}));
+    assert.deepEqual(riderNameVars(riders, 10),
+        {names: 'Alice, Bob, Carol, Dave', count: 4, others: 0});
+    assert.deepEqual(riderNameVars(riders, 2),
+        {names: 'Alice, Bob and 2 others', count: 4, others: 2});
+    assert.deepEqual(riderNameVars(riders, 3),
+        {names: 'Alice, Bob, Carol and 1 other', count: 4, others: 1}, 'singular "other"');
+    assert.deepEqual(riderNameVars(riders, 0),
+        {names: 'Alice, Bob, Carol, Dave', count: 4, others: 0}, '0 means name everyone');
+    assert.deepEqual(riderNameVars([], 8), {names: '', count: 0, others: 0});
+});
+
+test('riderNameVars falls back to an id when a rider has no name', () => {
+    assert.deepEqual(riderNameVars([{athleteId: 42}], 8), {names: '#42', count: 1, others: 0});
 });

@@ -165,6 +165,33 @@ section, details {
 .ride-total .rt-val { display: block; font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .ride-total .rt-label { display: block; font-size: 0.62rem; opacity: 0.6; margin-top: 0.1rem; }
 
+/* riders (welcome + milestone buckets) */
+#btnSeedKnown { margin-left: auto; }
+.series-banner {
+    border: 1px solid var(--rlg-warn);
+    border-radius: 5px;
+    padding: 0.4rem 0.5rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.75rem;
+}
+.series-banner .sb-msg { display: block; margin-bottom: 0.35rem; }
+.series-banner .sb-actions { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
+.series-banner select { flex: 1; min-width: 6rem; }
+.pending-buckets { display: flex; flex-direction: column; gap: 0.4rem; }
+.pending-bucket {
+    border: 1px solid var(--rlg-border);
+    border-radius: 6px;
+    background: rgba(255,255,255,0.04);
+    padding: 0.45rem 0.55rem;
+}
+.pending-bucket.welcome { border-color: var(--rlg-accent); }
+.pending-bucket .pb-head { display: flex; align-items: baseline; gap: 0.4rem; }
+.pending-bucket .pb-title { font-weight: 700; font-size: 0.85rem; }
+.pending-bucket .pb-count { font-size: 0.7rem; opacity: 0.6; margin-left: auto; }
+.pending-bucket .pb-names { font-size: 0.78rem; opacity: 0.85; margin: 0.25rem 0 0.4rem; }
+.pending-bucket .pb-actions { display: flex; gap: 0.4rem; }
+.riders-empty { font-size: 0.75rem; opacity: 0.6; }
+
 /* messages / outbox */
 .mode-badge {
     text-transform: uppercase;

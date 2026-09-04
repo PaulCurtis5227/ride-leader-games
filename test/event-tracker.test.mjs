@@ -106,6 +106,58 @@ test('riders with no readings for a metric are omitted from its standings', () =
 });
 
 
+test('firstSeenAt records the tick a rider appeared, and does not move when they return', () => {
+    const t = new EventTracker();
+    t.ingest([entry(2, 'Alice', {power: 100})], 1000);
+    t.ingest([], 2000);                                   // Alice drops out (intersection)
+    t.ingest([entry(2, 'Alice', {power: 100})], 9000);     // ...and comes back
+    assert.equal(t.athletes.get(2).firstSeenAt, 1000);
+});
+
+
+// ---- history metrics --------------------------------------------------------------------------
+// These come from the persistent ledger (rider-history.mjs), not from the nearby ticks: the tracker
+// just copies them onto each record via historyLookup so they can be viewed like any other metric.
+
+test('the history metrics rank riders by the stamped ledger values', () => {
+    const history = {2: {rides: 3, streak: 1}, 3: {rides: 40, streak: 12}};
+    const t = new EventTracker({historyLookup: id => history[id] || null});
+    t.ingest([entry(2, 'Alice', {power: 100}), entry(3, 'Bob', {power: 100})], 1000);
+
+    assert.deepEqual(t.standings('rides-desc').map(r => r.name), ['Bob', 'Alice']);
+    assert.deepEqual(t.standings('rides-asc').map(r => r.name), ['Alice', 'Bob']);
+    assert.equal(t.standings('rides-desc')[0].value, 40);
+    assert.deepEqual(t.standings('streak-desc').map(r => r.name), ['Bob', 'Alice']);
+});
+
+test('counts format as whole numbers (not the 2-decimal convention) and pluralize', () => {
+    assert.equal(getMetric('rides-desc').format(12), '12 rides');
+    assert.equal(getMetric('rides-desc').format(1), '1 ride');
+    assert.equal(getMetric('streak-desc').format(4), '4 in a row');
+});
+
+test('a rider with no ledger entry is omitted, and with no history wired nobody is listed', () => {
+    const history = {2: {rides: 3, streak: 1}};
+    const t = new EventTracker({historyLookup: id => history[id] || null});
+    t.ingest([entry(2, 'Alice', {power: 100}), entry(3, 'Bob', {power: 100})], 1000);
+    assert.deepEqual(t.standings('rides-desc').map(r => r.name), ['Alice'], 'Bob not credited yet');
+
+    const bare = new EventTracker();
+    bare.ingest([entry(2, 'Alice', {power: 100})], 1000);
+    assert.equal(bare.standings('rides-desc').length, 0, 'no history wired -> nobody, not a throw');
+});
+
+test('the stamped values follow the ledger when it changes mid-ride', () => {
+    let rides = 9;
+    const t = new EventTracker({historyLookup: () => ({rides, streak: 1})});
+    t.ingest([entry(2, 'Alice', {power: 100})], 1000);
+    assert.equal(t.standings('rides-desc')[0].value, 9);
+    rides = 10;                                        // credited during the ride
+    t.ingest([entry(2, 'Alice', {power: 100})], 2000);
+    assert.equal(t.standings('rides-desc')[0].value, 10);
+});
+
+
 // ---- levels -----------------------------------------------------------------------------------
 
 test('the two level metrics show the current level, sorted opposite ways', () => {
@@ -219,4 +271,30 @@ test('levels gained counts confirmed level-ups and is totalled across the ride',
 
     t.ingest([entry(2, 'Alice', {level: 44}), entry(3, 'Bob', {level: 11})], 2000 + 2 * SETTLED);
     assert.equal(t.rideTotals().levelsGained, 3, 'one each on top');
+});
+
+test('retain forgets riders who turn out not to be on the ride', () => {
+    // The event a ride is in resolves a beat after the window opens, so the first ticks can
+    // accumulate passers-by. Once the roster is known they should leave no trace — not even a
+    // one-sample entry in the standings or a slice of the ride totals.
+    const t = new EventTracker();
+    t.ingest([entry(2, 'Alice', {power: 100, distance: 0, rideons: 0}),
+        entry(3, 'Bob', {power: 100, distance: 0, rideons: 0}),
+        entry(9, 'Passer-by', {power: 500, distance: 0, rideons: 0})], 1000);
+    t.ingest([entry(2, 'Alice', {power: 100, distance: 100, rideons: 0}),
+        entry(3, 'Bob', {power: 100, distance: 100, rideons: 0}),
+        entry(9, 'Passer-by', {power: 500, distance: 400, rideons: 7})], 2000);
+    assert.equal(t.standings('max-power')[0].name, 'Passer-by');
+
+    const ours = new Set([2, 3]);
+    assert.equal(t.retain(id => ours.has(id)), 1, 'one record dropped');
+    assert.deepEqual(t.standings('max-power').map(r => r.name), ['Alice', 'Bob']);
+    const totals = t.rideTotals();
+    assert.equal(totals.riders, 2);
+    assert.equal(totals.rideOns, 0, 'the stranger\'s ride-ons are gone from the ride totals');
+    assert.equal(Math.round(totals.miles * METERS_PER_MILE), 200, 'and their distance');
+
+    // Idempotent, and harmless when everyone counts.
+    assert.equal(t.retain(id => ours.has(id)), 0);
+    assert.equal(t.retain(() => true), 0);
 });

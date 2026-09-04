@@ -36,6 +36,11 @@ body {
 .instr-tools { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .instr-note { font-size: 0.85em; opacity: 0.7; }
 
+/* explanatory line under a field, and a row of buttons (rider history) */
+.hint { font-size: 0.85em; opacity: 0.7; }
+.hint em { opacity: 0.9; }
+.btn-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+
 /* rider announcements — generated from the announcements.mjs registry (see settings.mjs) */
 .section-head { margin: 0.4rem 0 0; font-size: 1em; opacity: 0.8; }
 .announcements { display: grid; gap: 0.6rem; }

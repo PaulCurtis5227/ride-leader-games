@@ -15,7 +15,10 @@ import * as Common from '/pages/src/common.mjs';
 import {RideLeaderGame, SEND_MODES, STATES, chunkMessage, instructionMessages} from './engine.mjs';
 import {GAMES, getGame, DEFAULT_GAME_KEY} from './games.mjs';
 import {EventTracker, METRICS, getMetric, DEFAULT_METRIC_KEY} from './event-tracker.mjs';
-import {announcementDefaults, announcementMessages} from './announcements.mjs';
+import {EventRoster} from './event-roster.mjs';
+import {announcementDefaults, announcementMessages, manualAnnouncementMessage,
+    riderNameVars} from './announcements.mjs';
+import {RiderHistory, keyForEvent, parseMilestones, MILESTONES} from './rider-history.mjs';
 import {getSauceStreams} from './s4z-streams.mjs';
 import {JokeDeck} from './jokedeck.mjs';
 import {JOKES} from './jokes-data.mjs';
@@ -58,6 +61,12 @@ const SETTING_DEFAULTS = {
     answerDelay: 8,          // seconds between a joke's setup and its punchline
     jokePrefix: '\u{1F602}', // 😂 prepended to joke messages (empty to disable)
     eventMetric: DEFAULT_METRIC_KEY,   // which metric the "since event start" viewer shows
+    eventRidersOnly: true,     // in an event, ignore riders who are not in it (see event-roster.mjs)
+    // ---- rider history (see rider-history.mjs) ----
+    milestoneLadder: MILESTONES.join(', '),
+    presenceMinutes: 5,        // how long a rider must be with us to count as having ridden
+    maxNamesPerMessage: 8,     // names in one bucket message before "…and N others"
+    rideSeriesLabel: '',       // manual series name, used when no Zwift event is detected
     // One on/off flag + one message template per rider-event announcement, straight from the
     // registry — adding an announcement never needs an edit here (see announcements.mjs).
     ...announcementDefaults(),
@@ -65,6 +74,8 @@ const SETTING_DEFAULTS = {
 
 let game;
 let tracker;   // event-long metric/stats accumulator (independent of game rounds)
+let history;   // persistent, ride-over-ride rider ledger (welcome + milestones)
+let roster;    // who is actually on this ride (drops non-event riders — see event-roster.mjs)
 let els;
 let lastState = STATES.IDLE;
 let lastPeriodicAnnounce = 0;
@@ -74,8 +85,9 @@ let starting = false;       // in the pre-roll phase (before the game timer runs
 let startGen = 0;           // bumped by Stop/Reset to cancel an in-flight pre-roll
 let startPhase = '';        // '' | 'instructions' | 'countdown' (drives the clock display)
 let preRollGoAt = 0;        // clockNow() ms when the start message fires (countdown target)
-let lastNearbyCount = 0;
-let lastEntries = [];       // most recent nearby snapshot (for refreshing UI on config changes)
+let lastNearbyCount = 0;    // riders on the ride (after the event filter) in the last tick
+let lastRawNearbyCount = 0; // …and how many `nearby` actually listed
+let lastEntries = [];       // most recent (filtered) nearby snapshot, for refreshing UI on config changes
 let wsConnected = false;   // connected to Sauce's web server (the data pipe)
 let lastDataTs = 0;        // wall-clock ms of the last nearby tick (ground truth for "receiving data")
 let gameLink = false;      // Zwift game connection (command channel) — only needed to SEND chat
@@ -87,6 +99,32 @@ let draining = false;
 const outbox = [];          // {t, text, status}
 const reviewItems = [];     // {id, text}
 let reviewSeq = 0;
+
+/*
+ * ---- rider history / event identity ----
+ * The ledger is keyed to the EVENT, not the leader: a rider is a regular *of a ride*, and a leader
+ * may run two different rides a week. Resolving which event we are in costs a couple of RPCs, so it
+ * is done at most every EVENT_RESOLVE_MS and cached. `seriesPrompt` is set when the resolved key has
+ * no history — the panel then asks whether this is a renamed existing ride rather than silently
+ * starting a fresh series and zeroing everyone's count (see the banner in renderRiders).
+ */
+const EVENT_RESOLVE_MS = 60_000;
+const EVENT_RETRY_MS = 10_000;      // while still unidentified, look again sooner
+/*
+ * How long to keep trying before deciding this really is a free ride and falling back to the manual
+ * series label. Comfortably shorter than the presence threshold (5 min), so a slow or briefly failing
+ * event lookup can't credit anyone under the fallback key and leave a junk series behind.
+ */
+const FREE_RIDE_GRACE_MS = 90_000;
+let lastEventResolve = 0;
+let firstResolveAt = 0;
+let resolvingEvent = false;
+let eventInfo = null;         // {name, seriesId, lateJoinInMinutes} of the ride we are in, if any
+let seriesPrompt = null;      // {rawKey, label} while an unrecognised series is unconfirmed
+// Last markup written for the panel's two live regions. The panel re-renders every second, so these
+// keep the DOM (and the merge dropdown's selection) untouched unless something really changed.
+let lastBucketsHtml = null;
+let lastBannerKey = null;
 
 // ---- jokes (independent of the game; sends setup now, punchline after answerDelay) ----
 let jokeDeck;
@@ -147,6 +185,134 @@ function readConfigIntoEngine() {
     // The tracker's only tunable: whether level-up detection waits for a new rider's profile to
     // settle (see the LEVEL SETTLING notes in event-tracker.mjs).
     tracker.setConfig({levelSettling: get('levelUpSettling') !== false});
+    // Who counts: in an event, riders who are not in it are dropped before anything sees the tick.
+    // `subgroupId` comes from the event resolution below, so this is null until that lands (and on a
+    // free ride), which the roster reads as "filter nothing".
+    roster.setConfig({
+        enabled: get('eventRidersOnly') !== false,
+        subgroupId: eventInfo ? eventInfo.subgroupId : null,
+        leaderId: get('leaderId') != null ? Number(get('leaderId')) : null,
+    });
+    history.setConfig({
+        milestones: parseMilestones(get('milestoneLadder')),
+        presenceMs: Math.max(0, Number(get('presenceMinutes')) || 0) * 60_000,
+    });
+}
+
+
+// ---------------------------------------------------------------- event identity
+
+/*
+ * Which Zwift event are we in? Walks the host's own chain: the athlete's own subgroup if they are
+ * registered, else whichever subgroup most of the riders around us are in (a leader is not always
+ * signed up to their own ride). Then subgroup -> event, because the stable EventSeries id lives on
+ * the EVENT, not the subgroup. Every step is optional — a free ride simply yields null and the
+ * ledger falls back to the manual series label.
+ */
+async function resolveEventInfo(entries) {
+    let sgId = null;
+    try {
+        const ad = await Common.rpc.getAthleteData('self');
+        sgId = ad && ad.eventSubgroup && ad.eventSubgroup.id;
+    } catch(e) {
+        /* not fatal — fall through to the vote */
+    }
+    if (!sgId) {
+        sgId = modalEventSubgroupId(entries);
+    }
+    if (!sgId) {
+        return null;
+    }
+    try {
+        const sg = await Common.rpc.getEventSubgroup(sgId);
+        if (!sg) {
+            return null;
+        }
+        let ev = null;
+        if (sg.eventId != null) {
+            ev = await Common.rpc.getCachedEvent(sg.eventId);
+            if (!ev) {
+                ev = await Common.rpc.getEvent(sg.eventId);
+            }
+        }
+        return {
+            subgroupId: sgId,
+            eventId: sg.eventId,
+            name: (ev && ev.name) || sg.name || '',
+            // Only official/club events configured as a series carry one; meetups never do.
+            seriesId: ev && ev.eventSeries ? ev.eventSeries.id : null,
+            lateJoinInMinutes: (ev && ev.lateJoinInMinutes) || sg.lateJoinInMinutes || null,
+        };
+    } catch(e) {
+        console.warn('[rlg] event lookup failed:', e);
+        return null;
+    }
+}
+
+// The subgroup most riders around us are in — robust when the leader isn't registered themselves.
+function modalEventSubgroupId(entries) {
+    const counts = new Map();
+    for (const e of entries || []) {
+        const id = e && e.state && e.state.eventSubgroupId;
+        if (id) {
+            counts.set(id, (counts.get(id) || 0) + 1);
+        }
+    }
+    let best = null, bestN = 0;
+    for (const [id, n] of counts) {
+        if (n > bestN) {
+            best = id;
+            bestN = n;
+        }
+    }
+    return best;
+}
+
+/*
+ * Point the ledger at the right series and start (or resume) this ride's session. Cheap to call on
+ * every tick — the RPC work is throttled and the rest is a no-op once resolved.
+ */
+async function maintainSeries(entries) {
+    const now = clockNow();
+    const interval = eventInfo ? EVENT_RESOLVE_MS : EVENT_RETRY_MS;
+    if (resolvingEvent || (lastEventResolve && (now - lastEventResolve) < interval)) {
+        if (history.seriesKey && history.sessionIndex == null) {
+            history.beginSession(now);
+        }
+        return;
+    }
+    resolvingEvent = true;
+    try {
+        if (!firstResolveAt) {
+            firstResolveAt = now;
+        }
+        const info = await resolveEventInfo(entries);
+        eventInfo = info;
+        lastEventResolve = clockNow();
+        // Not in an event (yet). Keep looking for a while before committing anyone to the fallback
+        // "free ride" ledger — an event lookup that needs a few seconds is normal.
+        if (!info && !history.seriesKey && (clockNow() - firstResolveAt) < FREE_RIDE_GRACE_MS) {
+            return;
+        }
+        const rawKey = keyForEvent({
+            seriesId: info && info.seriesId,
+            eventName: info && info.name,
+            label: get('rideSeriesLabel'),
+        });
+        const label = (info && info.name) || get('rideSeriesLabel') || 'My ride';
+        if (history.seriesKey !== history.resolveKey(rawKey)) {
+            const r = history.useSeries(rawKey, {label});
+            // An unknown key is usually a renamed event. Ask before treating it as a brand new ride:
+            // silently forking would zero every rider's count and streak. Only worth asking when
+            // there is something to merge into.
+            seriesPrompt = (r.isNew && history.listSeries().length > 1) ? {rawKey, label} : null;
+            history.beginSession(clockNow());
+        } else if (history.sessionIndex == null) {
+            history.beginSession(clockNow());
+        }
+    } finally {
+        resolvingEvent = false;
+    }
 }
 
 
@@ -304,10 +470,129 @@ function summarizeDiag(type, d) {
     return JSON.stringify(d);
 }
 
+/*
+ * The Riders panel: a live count of who is still owed a welcome, plus one row per thing the leader
+ * could say right now. Each row is exactly one chat message — a bucket, not a rider — which is what
+ * keeps a group who all started together from producing thirty near-identical messages in a week.
+ */
+function renderRiders() {
+    if (!els.pendingBuckets) {
+        return;
+    }
+    const now = clockNow();
+    const p = history.pending(now);
+    const late = eventInfo && eventInfo.lateJoinInMinutes;
+    const elapsedMin = tracker.startTime != null ? Math.floor(tracker.elapsedMs(now) / 60_000) : 0;
+
+    const bits = [];
+    if (!history.seriesKey) {
+        bits.push('waiting for riders…');
+    } else {
+        bits.push(p.welcome.length ? `${p.welcome.length} to welcome` : 'nobody to welcome');
+        if (p.milestones.length) {
+            bits.push(`${p.milestones.length} milestone${p.milestones.length === 1 ? '' : 's'}`);
+        }
+        // Recognising new riders is a mid-ride thing, once the group has settled and late join has
+        // closed. A hint rather than a lock — the leader picks the moment.
+        if (late && elapsedMin < late) {
+            bits.push(`late join closes ~${late - elapsedMin} min`);
+        }
+    }
+    els.ridersHistNote.textContent = bits.join(' · ');
+
+    renderSeriesBanner();
+
+    const rows = [];
+    if (p.welcome.length) {
+        rows.push(bucketRow({
+            kind: 'welcome',
+            title: '👋 New riders',
+            riders: p.welcome,
+            action: 'Welcome',
+        }));
+    }
+    for (const m of p.milestones) {
+        rows.push(bucketRow({
+            kind: 'milestone',
+            value: m.value,
+            title: `🎂 ${m.value} rides`,
+            riders: m.riders,
+            action: 'Announce',
+        }));
+    }
+    const html = rows.length ? rows.join('') :
+        `<div class="riders-empty">${history.seriesKey ?
+            'Nothing pending — everyone here has been welcomed.' :
+            'No ride identified yet.'}</div>`;
+    // This runs on the 1s ticker, so only touch the DOM when the buckets actually change: replacing
+    // the markup under the leader's cursor can swallow a click that lands mid-rebuild, and it drops
+    // keyboard focus.
+    if (html !== lastBucketsHtml) {
+        lastBucketsHtml = html;
+        els.pendingBuckets.innerHTML = html;
+    }
+}
+
+function bucketRow({kind, value, title, riders, action}) {
+    const names = riders.map(r => Common.sanitize(r.name)).join(', ');
+    const ids = riders.map(r => r.athleteId).join(',');
+    return `
+        <div class="pending-bucket ${kind}" data-kind="${kind}" data-value="${value == null ? '' : value}"
+             data-ids="${Common.sanitize(ids)}">
+            <div class="pb-head">
+                <span class="pb-title">${title}</span>
+                <span class="pb-count">${riders.length} rider${riders.length === 1 ? '' : 's'}</span>
+            </div>
+            <div class="pb-names">${names}</div>
+            <div class="pb-actions">
+                <button class="rlg-btn small primary" data-act="send">${action}</button>
+                <button class="rlg-btn small" data-act="dismiss"
+                    title="Mark as done without sending anything">Skip</button>
+            </div>
+        </div>`;
+}
+
+/*
+ * Shown when the resolved series has no history — almost always a renamed event. Offering "this is
+ * <existing ride>" (which aliases, so no counts are recomputed) is the whole point: without it a
+ * rename silently starts a new ledger and every rider looks new again.
+ */
+function renderSeriesBanner() {
+    const el = els.seriesBanner;
+    if (!el) {
+        return;
+    }
+    if (!seriesPrompt) {
+        el.hidden = true;
+        el.innerHTML = '';
+        lastBannerKey = null;
+        return;
+    }
+    // Rebuilding this every tick would reset the <select> under the leader while they are choosing.
+    if (lastBannerKey === seriesPrompt.rawKey) {
+        return;
+    }
+    lastBannerKey = seriesPrompt.rawKey;
+    const others = history.listSeries().filter(s => s.key !== history.seriesKey);
+    el.hidden = false;
+    el.innerHTML = `
+        <span class="sb-msg">New ride “${Common.sanitize(seriesPrompt.label)}” — no history yet.
+            If this ride was renamed, point it at its old history.</span>
+        <div class="sb-actions">
+            <select id="seriesMergeInto">
+                ${others.map(s => `<option value="${Common.sanitize(s.key)}">${
+                    Common.sanitize(s.label)} (${s.sessions} rides, ${s.riders} riders)</option>`).join('')}
+            </select>
+            <button class="rlg-btn small primary" id="btnSeriesMerge">This is that ride</button>
+            <button class="rlg-btn small" id="btnSeriesKeep">Keep separate</button>
+        </div>`;
+}
+
 function renderAll() {
     renderClock();
     renderBoard();
     renderEvent();
+    renderRiders();
     renderOutbox();
     renderDiag();
 }
@@ -610,28 +895,102 @@ function syncButtons() {
 
 // ---------------------------------------------------------------- live data
 
-function onNearby(entries) {
+function onNearby(all) {
+    lastRawNearbyCount = all.length;
+    lastDataTs = Date.now();
+    readConfigIntoEngine();      // before the filter: it feeds the roster its event + leader
+    /*
+     * `nearby` is everyone on the same road; in an event only the riders in it are on our ride, and
+     * everyone else is dropped here, once, so the games, the metric viewer, the ride totals and the
+     * ledger all see the same roster (see event-roster.mjs). Outside an event this is the raw list.
+     */
+    const entries = roster.filter(all);
     lastNearbyCount = entries.length;
     lastEntries = entries;
-    lastDataTs = Date.now();
-    updateLeaderPicker(entries);
+    // The picker deliberately lists EVERY rider nearby: a leader who isn't registered for their own
+    // ride still has to be selectable, and the roster keeps whoever is picked.
+    updateLeaderPicker(all);
     updateReference(entries);
-    readConfigIntoEngine();
     // The event tracker runs continuously (independent of game rounds) so the "since event start"
     // viewer and ride-wide totals accumulate whether or not a game is active. It also reports the
     // rider events it spotted this tick (level-ups today) for announcing.
     announceRiderEvents(tracker.ingest(entries, clockNow()));
+    // Resolving the event takes a moment after the window opens, so the first ticks may have
+    // accumulated riders who turn out not to be on the ride. Drop them once we know better.
+    if (roster.active) {
+        tracker.retain(id => roster.has(id));
+    }
+    // The persistent ledger: note everyone present, credit a ride once they've been with us long
+    // enough, and persist only if something changed. `maintainSeries` is async and self-throttling;
+    // it is deliberately not awaited so a slow RPC can never stall a tick. It gets the UNFILTERED
+    // list — its subgroup vote is what tells the roster which event we are in.
+    maintainSeries(all);
+    const nowMs = clockNow();
+    for (const e of entries) {
+        if (e && e.athleteId != null) {
+            history.observe(e.athleteId, nameOf(e), nowMs);
+        }
+    }
+    // Same reason as the tracker above, and it matters more here: presence runs from a rider's FIRST
+    // sighting, so a stranger seen once before we knew the event would be credited a ride five
+    // minutes later — and offered up by name for a welcome.
+    if (roster.active) {
+        history.retain(id => roster.has(id));
+    }
+    history.commit(nowMs);
+    history.flush();
     if (game.state === STATES.RUNNING) {
         game.ingest(entries, clockNow());
         if (game.state === STATES.FINISHED) {   // ingest auto-finished on time-up
             onFinish();
             renderEvent();
+            renderRiders();
             return;
         }
     }
     renderBoard();
     renderEvent();
+    renderRiders();
     renderDiag();
+}
+
+/*
+ * Send one bucket. The text comes from the registry (so the leader's template and on/off switch
+ * apply) and goes through the normal pipeline, so Silent/Review/Auto, chunking and pacing all behave
+ * like any other message. The riders are marked as the message ENTERS the pipeline — discarding it
+ * afterwards in Review mode still counts as done, which is a fair trade for not having to thread a
+ * result back through the review queue.
+ */
+function sendBucket(kind, value, ids) {
+    if (!ids.length) {
+        return;
+    }
+    const p = history.pending(clockNow());
+    const riders = kind === 'welcome' ? p.welcome :
+        (p.milestones.find(m => m.value === value) || {riders: []}).riders;
+    const picked = riders.filter(r => ids.includes(r.athleteId));
+    if (!picked.length) {
+        return;
+    }
+    const vars = riderNameVars(picked, Number(get('maxNamesPerMessage')) || 0);
+    const text = kind === 'welcome' ?
+        manualAnnouncementMessage('welcome', vars, get) :
+        manualAnnouncementMessage('milestone', {...vars, rides: value}, get);
+    markBucketDone(kind, value, ids);
+    if (text) {
+        enqueueMessage(text);
+    }
+    renderRiders();
+}
+
+// Mark a bucket handled without saying anything (the Skip button, and the tail of sendBucket).
+function markBucketDone(kind, value, ids) {
+    if (kind === 'welcome') {
+        history.markWelcomed(ids, clockNow());
+    } else {
+        history.markMilestoneAnnounced(value, ids);
+    }
+    history.flush();
 }
 
 /*
@@ -670,13 +1029,27 @@ function buildGamePicker() {
     });
 }
 
+/*
+ * How many riders we are actually scoring, and how many of the nearby list we threw away. The
+ * saturation warning uses the RAW count — it's the host's ~100-rider cap that's biting, not ours.
+ */
+function ridersNoteText() {
+    const sat = lastRawNearbyCount >= (game.config.maxRiders || 100) ? ' (list saturated)' : '';
+    const ignored = lastRawNearbyCount - lastNearbyCount;
+    return ignored > 0
+        ? `${lastNearbyCount} on the ride · ${ignored} nearby ignored (not in the event)${sat}`
+        : `${lastRawNearbyCount} riders nearby${sat}`;
+}
+
 function updateReference(entries) {
+    els.ridersNote.title = roster.active
+        ? 'Only riders in this Zwift event are counted (Settings ▸ Who counts)'
+        : 'Not in a Zwift event — every rider nearby is counted';
     // Games that don't score relative to a leader (e.g. cadence) don't use the reference picker.
     if (!activeGame().needsReference) {
         els.leaderFlag.textContent = 'not used for this game';
         els.leaderFlag.className = 'ref-flag';
-        els.ridersNote.textContent = `${lastNearbyCount} riders nearby` +
-            (lastNearbyCount >= (game.config.maxRiders || 100) ? ' (list saturated)' : '');
+        els.ridersNote.textContent = ridersNoteText();
         return;
     }
     const leaderId = game.config.leaderId;
@@ -694,8 +1067,7 @@ function updateReference(entries) {
             els.leaderFlag.className = 'ref-flag warn';
         }
     }
-    els.ridersNote.textContent = `${lastNearbyCount} riders nearby` +
-        (lastNearbyCount >= (game.config.maxRiders || 100) ? ' (list saturated)' : '');
+    els.ridersNote.textContent = ridersNoteText();
 }
 
 let leaderPickerSig = '';
@@ -858,6 +1230,10 @@ export async function main() {
         eventElapsed: document.querySelector('#eventElapsed'),
         rideTotals: document.querySelector('#rideTotals'),
         btnResetEvent: document.querySelector('#btnResetEvent'),
+        ridersHistNote: document.querySelector('#ridersHistNote'),
+        seriesBanner: document.querySelector('#seriesBanner'),
+        pendingBuckets: document.querySelector('#pendingBuckets'),
+        btnSeedKnown: document.querySelector('#btnSeedKnown'),
         btnStart: document.querySelector('#btnStart'),
         btnStop: document.querySelector('#btnStop'),
         btnReset: document.querySelector('#btnReset'),
@@ -882,7 +1258,15 @@ export async function main() {
         config: {},
         onDiag: ev => { console.debug('[rlg diag]', ev); },
     });
-    tracker = new EventTracker();
+    // The persistent ledger. localStorage rather than the settings store on purpose: a settingsStore
+    // write fires the cross-window 'set' event, which this window answers by re-reading config and
+    // re-rendering — a silly amount of work for a per-tick ledger update.
+    history = new RiderHistory({storage: window.localStorage});
+    history.load();
+    // The tracker copies ride counts / streaks off the ledger so they can be viewed as metrics.
+    tracker = new EventTracker({historyLookup: history.lookup()});
+    // Who counts. Configured (event + leader + the on/off switch) by readConfigIntoEngine.
+    roster = new EventRoster();
     readConfigIntoEngine();
 
     Common.initInteractionListeners();
@@ -901,8 +1285,13 @@ export async function main() {
         syncDurationInput();
         renderOutbox();
         renderEvent();
+        renderRiders();
         renderDiag();
     });
+
+    // The ledger is written on the tick that changes it, but a mid-ride window close (or a crash)
+    // could land between ticks — flush what's pending on the way out.
+    window.addEventListener('beforeunload', () => history.flush());
 
     // Buttons
     els.btnStart.addEventListener('click', onStart);
@@ -921,6 +1310,61 @@ export async function main() {
     els.btnResetEvent.addEventListener('click', () => {
         tracker.reset(clockNow());
         renderEvent();
+    });
+
+    /*
+     * Riders panel. One delegated handler for every bucket button, like the review queue: the rows
+     * are re-rendered constantly, so per-button listeners would be re-attached on every tick.
+     */
+    els.pendingBuckets.addEventListener('click', ev => {
+        const btn = ev.target.closest('button[data-act]');
+        if (!btn) {
+            return;
+        }
+        const row = btn.closest('.pending-bucket');
+        const kind = row.dataset.kind;
+        const value = row.dataset.value ? Number(row.dataset.value) : null;
+        const ids = row.dataset.ids ? row.dataset.ids.split(',') : [];
+        if (btn.dataset.act === 'send') {
+            sendBucket(kind, value, ids);
+        } else {
+            markBucketDone(kind, value, ids);
+            renderRiders();
+        }
+    });
+
+    /*
+     * Day one: everyone here has ridden with you for years but the ledger has never seen them. One
+     * click marks them known so nobody gets a "welcome" they'd find odd. Their ride count still
+     * starts from now — there is no way to recover real history (see rider-history.mjs).
+     */
+    els.btnSeedKnown.addEventListener('click', () => {
+        if (!history.seriesKey) {
+            return;
+        }
+        const n = history.seedKnown(null, clockNow());
+        history.flush();
+        renderRiders();
+        console.info(`[rlg] marked ${n} rider(s) as already known`);
+    });
+
+    // Series banner: alias a renamed event onto its old history, or accept it as a new ride.
+    els.seriesBanner.addEventListener('click', ev => {
+        const btn = ev.target.closest('button');
+        if (!btn) {
+            return;
+        }
+        if (btn.id === 'btnSeriesMerge') {
+            const sel = els.seriesBanner.querySelector('#seriesMergeInto');
+            const target = sel && sel.value;
+            if (target && seriesPrompt) {
+                history.aliasSeries(seriesPrompt.rawKey, target);
+                history.beginSession(clockNow());
+                history.flush();
+            }
+        }
+        seriesPrompt = null;          // both buttons dismiss it
+        renderRiders();
     });
 
     // Jokes — deal the first joke immediately so Send/Skip are live on open.
@@ -1103,6 +1547,9 @@ function gameClock() {
     }
     renderClock();
     renderEvent();  // keep the "since event start" elapsed + totals ticking even when nearby is quiet
+    // Riders cross the presence threshold on a timer, not on a data change, so the pending counts and
+    // the late-join hint have to tick too.
+    renderRiders();
     renderConn();   // refresh "receiving data" vs "waiting" as data recency changes
     renderJokeStatus();   // live "punchline in Ns…" countdown while a joke send is pending
 }

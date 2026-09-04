@@ -24,7 +24,8 @@
  * Adding one is therefore: emit `{type: <key>, …}` from the tracker, add the entry here, done.
  *
  * Announcement interface:
- *   key              stable id; MUST equal the `type` of the event the tracker emits
+ *   key              stable id; for an automatic announcement it MUST equal the `type` of the event
+ *                    the tracker emits
  *   name             label shown in the settings window
  *   description      one-line hint shown above the template field
  *   enabledSetting   settings-store key of the on/off checkbox
@@ -33,9 +34,18 @@
  *   defaultTemplate  default message text; `{placeholder}` names are substituted per event
  *   placeholders     [{name, description}] — the placeholders offered to the leader
  *   vars(event)      event -> {name: value} used for the substitution
+ *   manual           (optional) true when the leader SENDS this from a button rather than it firing
+ *                    off a detected event — see below
  *   options          (optional) [{setting, label, description, defaultValue}] extra on/off switches
  *                    shown under this announcement. These tune HOW the underlying event is detected
  *                    rather than what is said, so the tracker — not this module — reads them.
+ *
+ * AUTOMATIC vs MANUAL. A level-up is news the moment it happens, so it is announced automatically as
+ * the tracker spots it. Recognising new riders and ride milestones is a *social* act with a good
+ * moment for it — after the late-join window closes, when the leader chooses — and it is far more
+ * forgiving if a human glances at the list first. Those are `manual: true`: the wording, the on/off
+ * switch and the settings UI work exactly the same, but `announcementMessages()` ignores them and the
+ * control window's Riders panel composes them through `manualAnnouncementMessage()` on a button press.
  */
 
 /*
@@ -77,9 +87,63 @@ export const LEVEL_UP_ANNOUNCEMENT = {
 };
 
 
+/*
+ * Sent from the Riders panel, listing everyone present who has never been welcomed to THIS ride —
+ * whatever their ride count, so a rider missed on an earlier week is still caught. One message for
+ * the whole group: naming them individually would be a flood on a first run.
+ */
+export const WELCOME_ANNOUNCEMENT = {
+    key: 'welcome',
+    name: 'Welcome new riders',
+    description: 'Sent when you press Welcome in the control window’s Riders panel, naming everyone ' +
+        'who has not been welcomed to this ride before.',
+    enabledSetting: 'announceWelcome',
+    templateSetting: 'welcomeMessage',
+    defaultEnabled: true,
+    manual: true,
+    defaultTemplate: '👋 Please give a warm welcome to our new riders: {names}! Great to have you ' +
+        'with us!',
+    placeholders: [
+        {name: 'names', description: 'the new riders, comma separated'},
+        {name: 'count', description: 'how many there are'},
+        {name: 'others', description: 'how many were not named (0 when everyone fitted)'},
+    ],
+    vars: ev => ({names: ev.names, count: ev.count, others: ev.others}),
+};
+
+/*
+ * Sent from the Riders panel, one message per milestone value — everyone reaching 10 rides is a
+ * single message, everyone reaching 50 another. That is what keeps a group who all started together
+ * from producing thirty near-identical congratulations in the same week.
+ *
+ * `{rides}` is the milestone reached, and it counts rides *with this ride* since the mod started
+ * keeping track — not a Zwift-wide total — so the default wording says "with us".
+ */
+export const MILESTONE_ANNOUNCEMENT = {
+    key: 'milestone',
+    name: 'Ride milestones',
+    description: 'Sent when you press a milestone button in the control window’s Riders panel, ' +
+        'naming everyone who has reached that number of rides with this ride.',
+    enabledSetting: 'announceMilestone',
+    templateSetting: 'milestoneMessage',
+    defaultEnabled: true,
+    manual: true,
+    defaultTemplate: '🎂 Celebrating {rides} rides with us: {names}! Thanks for riding with us! 🎂',
+    placeholders: [
+        {name: 'rides', description: 'the milestone reached (10, 50, …)'},
+        {name: 'names', description: 'the riders reaching it, comma separated'},
+        {name: 'count', description: 'how many there are'},
+        {name: 'others', description: 'how many were not named (0 when everyone fitted)'},
+    ],
+    vars: ev => ({rides: ev.rides, names: ev.names, count: ev.count, others: ev.others}),
+};
+
+
 // Ordered registry — the settings window lists announcements in this order.
 export const ANNOUNCEMENTS = [
     LEVEL_UP_ANNOUNCEMENT,
+    WELCOME_ANNOUNCEMENT,
+    MILESTONE_ANNOUNCEMENT,
 ];
 
 const BY_KEY = new Map(ANNOUNCEMENTS.map(a => [a.key, a]));
@@ -108,23 +172,66 @@ export function announcementDefaults() {
 }
 
 /*
+ * Render one announcement, or '' when it should stay silent (unknown key, switched off, or a template
+ * the leader has blanked — blanking is a valid way to mute one without unticking the box).
+ */
+function render(def, vars, getSetting) {
+    if (!def || !getSetting(def.enabledSetting)) {
+        return '';
+    }
+    return renderTemplate(getSetting(def.templateSetting), vars).trim();
+}
+
+/*
  * Turn tracker events into the chat messages to send. `getSetting(key)` reads the effective setting
  * (the caller's store-with-defaults accessor). Events with no registry entry, or whose announcement
  * is switched off, are dropped; an emptied-out template is treated as "say nothing" rather than
  * falling back to the default, so blanking the field is a valid way to mute one.
+ *
+ * `manual` announcements are skipped here even if some caller passes one in: they are sent from a
+ * button, not from a detected event (see manualAnnouncementMessage).
  */
 export function announcementMessages(events, getSetting) {
     const out = [];
     for (const ev of events || []) {
         const def = getAnnouncement(ev && ev.type);
-        if (!def || !getSetting(def.enabledSetting)) {
+        if (!def || def.manual) {
             continue;
         }
-        const template = getSetting(def.templateSetting);
-        const text = renderTemplate(template, def.vars(ev)).trim();
+        const text = render(def, def.vars(ev), getSetting);
         if (text) {
             out.push(text);
         }
     }
     return out;
+}
+
+/*
+ * Compose a `manual: true` announcement for the leader's button press. Returns '' when it should stay
+ * silent. Keeping this here (rather than formatting the text in the control window) is what keeps ALL
+ * announcement wording — automatic or manual — owned by the registry.
+ */
+export function manualAnnouncementMessage(key, vars, getSetting) {
+    const def = getAnnouncement(key);
+    if (!def || !def.manual) {
+        return '';
+    }
+    return render(def, vars, getSetting);
+}
+
+/*
+ * Render a rider list for the {names}/{count}/{others} placeholders. A bucket can hold the whole
+ * group — 40 names would become several chat lines after chunking — so only `max` are named and the
+ * rest are counted. `max <= 0` names everyone.
+ */
+export function riderNameVars(riders, max) {
+    const names = (riders || []).map(r => (r && r.name) || `#${r && r.athleteId}`);
+    const limit = Number.isFinite(max) && max > 0 ? Math.min(max, names.length) : names.length;
+    const shown = names.slice(0, limit);
+    const others = names.length - shown.length;
+    let text = shown.join(', ');
+    if (others > 0) {
+        text += `${shown.length ? ' ' : ''}and ${others} other${others === 1 ? '' : 's'}`;
+    }
+    return {names: text, count: names.length, others};
 }
