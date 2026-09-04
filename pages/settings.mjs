@@ -65,8 +65,8 @@ function buildAnnouncementFields() {
                 <input type="checkbox" name="${a.enabledSetting}"${a.defaultEnabled ? ' checked' : ''}/>
                 Announce: ${Common.sanitize(a.name)}
             </label>
-            ${a.manual ? '<div class="ann-note">Sent when you press the button in the control ' +
-                'window’s Riders panel, never automatically.</div>' : ''}
+            ${a.manual ? `<div class="ann-note">${Common.sanitize(a.manualNote ||
+                'Sent when you press the button for it in the control window, never automatically.')}</div>` : ''}
             <label>${Common.sanitize(a.description)}
                 <textarea name="${a.templateSetting}" rows="2">${Common.sanitize(a.defaultTemplate)}</textarea>
             </label>

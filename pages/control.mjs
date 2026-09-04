@@ -14,7 +14,7 @@
 import * as Common from '/pages/src/common.mjs';
 import {RideLeaderGame, SEND_MODES, STATES, chunkMessage, instructionMessages} from './engine.mjs';
 import {GAMES, getGame, DEFAULT_GAME_KEY} from './games.mjs';
-import {EventTracker, METRICS, getMetric, DEFAULT_METRIC_KEY} from './event-tracker.mjs';
+import {EventTracker, METRICS, getMetric, DEFAULT_METRIC_KEY, formatRideTotals} from './event-tracker.mjs';
 import {EventRoster} from './event-roster.mjs';
 import {announcementDefaults, announcementMessages, manualAnnouncementMessage,
     riderNameVars} from './announcements.mjs';
@@ -385,6 +385,7 @@ function renderEvent() {
     }
     const metric = getMetric(get('eventMetric'));
     const rows = tracker.standings(metric.key);
+    els.btnSendTotals.disabled = !rideTotalsMessage();   // nothing to report, or announcement muted
     els.eventElapsed.textContent = tracker.startTime != null
         ? `${fmtClock(tracker.elapsedMs(clockNow()))} · ${rows.length} riders` : '';
     els.eventBoard.innerHTML = rows.map((r, i) => `
@@ -394,13 +395,14 @@ function renderEvent() {
             <span class="avg">${metric.format(r.value)}</span>
         </li>`).join('');
 
-    const t = tracker.rideTotals();
+    // Formatted by event-tracker.mjs so the "Send summary" message reads exactly like these tiles.
+    const t = formatRideTotals(tracker.rideTotals());
     els.rideTotals.innerHTML = [
-        ['Total miles', t.miles.toFixed(1)],
-        ['Pedal strokes', Math.round(t.strokes).toLocaleString()],
-        ['Ride-ons', Math.round(t.rideOns).toLocaleString()],
-        ['Calories', Math.round(t.calories).toLocaleString()],
-        ['Levels gained', Math.round(t.levelsGained).toLocaleString()],
+        ['Total miles', t.miles],
+        ['Pedal strokes', t.strokes],
+        ['Ride-ons', t.rideons],
+        ['Calories', t.calories],
+        ['Levels gained', t.levels],
     ].map(([label, val]) => `
         <div class="ride-total">
             <span class="rt-val">${val}</span>
@@ -994,6 +996,26 @@ function markBucketDone(kind, value, ids) {
 }
 
 /*
+ * The ride-summary message: the group's combined totals, worded by the registry and formatted by the
+ * tracker (formatRideTotals) so the message can't drift from the tiles it is read off.
+ *
+ * Returns '' when there is nothing to report yet, or when the announcement is switched off / its
+ * template blanked in Settings — renderEvent uses that same emptiness to grey the button out, so a
+ * muted announcement shows as a disabled button instead of a press that silently does nothing.
+ */
+function rideTotalsMessage() {
+    if (!tracker) {
+        return '';
+    }
+    const totals = tracker.rideTotals();
+    if (!totals.riders) {
+        return '';
+    }
+    const elapsed = tracker.startTime != null ? fmtClock(tracker.elapsedMs(clockNow())) : '0:00';
+    return manualAnnouncementMessage('ride-totals', {...formatRideTotals(totals), elapsed}, get);
+}
+
+/*
  * Announce the rider events the tracker just spotted (a level-up today; the registry is open-ended).
  * The registry decides which are enabled and how they read; these go through the normal send
  * pipeline, so they honour Silent/Review/Auto, chunking and pacing like every other message.
@@ -1229,6 +1251,7 @@ export async function main() {
         eventBoard: document.querySelector('#eventBoard'),
         eventElapsed: document.querySelector('#eventElapsed'),
         rideTotals: document.querySelector('#rideTotals'),
+        btnSendTotals: document.querySelector('#btnSendTotals'),
         btnResetEvent: document.querySelector('#btnResetEvent'),
         ridersHistNote: document.querySelector('#ridersHistNote'),
         seriesBanner: document.querySelector('#seriesBanner'),
@@ -1304,6 +1327,16 @@ export async function main() {
         els.durationInput.value = String(v);
         settings.set('duration', v);
         readConfigIntoEngine();
+    });
+
+    /*
+     * Send summary: the ride totals to chat, through the normal pipeline so Silent/Review/Auto,
+     * chunking and pacing behave like any other message. Nothing is consumed or marked, so the
+     * leader can send it again later in the ride.
+     */
+    els.btnSendTotals.addEventListener('click', () => {
+        enqueueMessage(rideTotalsMessage());
+        renderEvent();
     });
 
     // Reset event: start a fresh ride-long accumulation (zeros the metric viewer + totals).

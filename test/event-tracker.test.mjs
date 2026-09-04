@@ -13,7 +13,8 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {EventTracker, METRICS, getMetric, DEFAULT_METRIC_KEY} from '../pages/event-tracker.mjs';
+import {EventTracker, METRICS, getMetric, DEFAULT_METRIC_KEY, formatRideTotals}
+    from '../pages/event-tracker.mjs';
 
 const METERS_PER_MILE = 1609.344;
 
@@ -88,6 +89,30 @@ test('rideTotals sums across all riders', () => {
     assert.equal(tot.rideOns, 2, '2 + 0');
     assert.equal(tot.calories, 14, '(10 + 4) kJ ≈ kcal');
     assert.equal(tot.levelsGained, 0, 'no levels in this fixture');
+});
+
+test('formatRideTotals renders the totals the panel tiles and the chat summary share', () => {
+    const f = formatRideTotals(feed().rideTotals());
+    assert.equal(f.riders, '2');
+    assert.equal(f.miles, (300 / METERS_PER_MILE).toFixed(1), 'distance to one decimal');
+    assert.equal(f.km, '0.3', '300 m');
+    assert.equal(f.strokes, '5');
+    assert.equal(f.rideons, '2');
+    assert.equal(f.calories, '14');
+    assert.equal(f.levels, '0');
+});
+
+test('formatRideTotals rounds whole-number totals and survives an empty/absent ride', () => {
+    const f = formatRideTotals({riders: 3, miles: 12.34, strokes: 9.7, rideOns: 4.2,
+        calories: 501.5, levelsGained: 2});
+    assert.equal(f.miles, '12.3');
+    assert.equal(f.strokes, '10', 'whole-number totals are rounded, not truncated');
+    assert.equal(f.rideons, '4');
+    assert.equal(f.calories, '502');
+    // A press before any tick must not throw or print NaN.
+    assert.deepEqual(formatRideTotals(new EventTracker().rideTotals()),
+        {riders: '0', miles: '0.0', km: '0.0', strokes: '0', rideons: '0', calories: '0', levels: '0'});
+    assert.equal(formatRideTotals(undefined).miles, '0.0');
 });
 
 test('reset clears all accumulation', () => {

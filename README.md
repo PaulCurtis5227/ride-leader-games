@@ -5,8 +5,9 @@ A [Sauce for Zwift](https://github.com/SauceLLC/sauce4zwift) **mod** — a set o
 Over a configurable duration the mod scores every nearby rider and announces the standings and
 winners in chat. Which metric it scores is chosen from a **game picker** in the Control window; nine
 games ship today (see [Games](#games)), scoring by **average**, **peak**, or **ride-ons received**.
-Separately, a **Since event start** panel tracks any metric — plus whole-ride totals for the group —
-across the entire ride, independently of the timed games, and **rider announcements** congratulate
+Separately, a **Since event start** panel tracks any metric — plus whole-ride totals for the group,
+sendable to chat as a summary — across the entire ride, independently of the timed games, and
+**rider announcements** congratulate
 riders in chat when something happens to them (a level-up today). A **Riders** panel remembers who
 rides with you week after week, so you can welcome the newcomers and celebrate ride milestones at a
 moment you choose. All scored values are reported to two decimal places.
@@ -186,6 +187,10 @@ accumulates continuously from the moment data starts flowing (or the last **Rese
 - **Ride totals** — headline totals across *all* riders: total **miles ridden**, **pedal strokes**,
   **ride-ons received**, **calories burnt**, and **levels gained** during the ride. (More metrics to
   come.)
+- **Send summary** — sends those totals to chat as a single message, worded by the **Ride summary**
+  announcement (see [Rider announcements](#rider-announcements), where you can edit it or switch it
+  off). Nothing is used up, so you can send it again at the halfway point, at the top of a lap, and
+  in the cool-down. The numbers sent are exactly the ones on the tiles.
 - **Reset event** — zeroes everything to begin a fresh event (e.g. a new lap or a new group).
 
 This runs whether or not a game is active, so you can keep an eye on the group's cumulative effort at
@@ -267,6 +272,11 @@ the Settings window (**Rider announcements**):
   `🎉 LEVEL UP! Huge congratulations to {name}, now Level {level}! 🎉`
 - **Welcome new riders** and **Ride milestones** — the two above, sent from the Riders panel rather
   than automatically. Their templates and switches live here with the rest.
+- **Ride summary** — the group's combined totals, sent when you press **Send summary** in the
+  **Since event start** panel. Default message:
+  `📊 Ride so far: {riders} riders, {miles} mi, {rideons} ride-ons, {strokes} pedal strokes, {calories} kcal, {levels} levels gained 💪`
+  Six numbers don't fit one chat line, so this arrives as two; `{km}` and `{elapsed}` are offered
+  too if you'd rather report those, or trim a value to get it down to one.
 
 Templates use `{placeholder}` names that are substituted per event; the Settings window lists the
 ones each announcement offers right below its field (for a level-up: `{name}`, `{level}` and
@@ -430,7 +440,9 @@ have never been greeted, and celebrate 10/50/100+ ride milestones — one messag
 you press the button rather than automatically. History is keyed to the *event* (Zwift's event series
 where there is one) so two rides a week keep separate counts, with a prompt to re-link a renamed event
 rather than silently starting over. Adds **Rides with us** and **Consecutive rides** metrics, a
-**Mark all as known** seed for your first ride, and export/import of the ledger.
+**Mark all as known** seed for your first ride, and export/import of the ledger. The ride totals can
+now be **sent to chat** with one button (**Send summary**), worded by an editable **Ride summary**
+announcement.
 
 `1.0.1` — fixes the Messages pane timestamp, which showed `0:00` on every message unless a game was
 running (it was stamping time since the current game's start); messages now carry a local

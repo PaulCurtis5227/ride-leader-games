@@ -368,3 +368,27 @@ export class EventTracker {
         };
     }
 }
+
+
+/*
+ * Render rideTotals() for display: whole numbers with thousands separators and distance to one
+ * decimal. These are group totals in the hundreds, so this is deliberately the one place that does
+ * NOT follow the two-decimal metric convention — "412.7 mi" is the number a leader reads out, and
+ * "1,238.00 pedal strokes" reads as a measurement rather than a tally.
+ *
+ * Both the control window's totals tiles and the ride-summary chat announcement format through here,
+ * so what gets said always matches what is shown.
+ */
+export function formatRideTotals(t) {
+    const whole = v => Math.round(Number(v) || 0).toLocaleString();
+    const miles = Number(t && t.miles) || 0;
+    return {
+        riders: whole(t && t.riders),
+        miles: miles.toFixed(1),
+        km: (miles * METERS_PER_MILE / 1000).toFixed(1),
+        strokes: whole(t && t.strokes),
+        rideons: whole(t && t.rideOns),
+        calories: whole(t && t.calories),
+        levels: whole(t && t.levelsGained),
+    };
+}

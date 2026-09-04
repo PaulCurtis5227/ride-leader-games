@@ -15,8 +15,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     ANNOUNCEMENTS, LEVEL_UP_ANNOUNCEMENT, WELCOME_ANNOUNCEMENT, MILESTONE_ANNOUNCEMENT,
-    getAnnouncement, renderTemplate, announcementDefaults, announcementMessages,
-    manualAnnouncementMessage, riderNameVars,
+    RIDE_TOTALS_ANNOUNCEMENT, getAnnouncement, renderTemplate, announcementDefaults,
+    announcementMessages, manualAnnouncementMessage, riderNameVars,
 } from '../pages/announcements.mjs';
 
 // A getSetting() over a plain object, mirroring the control window's store-with-defaults accessor.
@@ -45,6 +45,10 @@ const SAMPLE = {
     'level-up': levelUp,
     'welcome': {names: 'Alice, Bob', count: 2, others: 0},
     'milestone': {rides: 10, names: 'Alice, Bob', count: 2, others: 0},
+    // Already-formatted strings — the control window renders the totals through
+    // event-tracker.mjs formatRideTotals() so the message matches the panel's tiles.
+    'ride-totals': {riders: '21', elapsed: '42:10', miles: '412.7', km: '664.2', rideons: '318',
+        strokes: '96,240', calories: '18,405', levels: '3'},
 };
 
 test('registry: every declared placeholder is actually produced by vars()', () => {
@@ -144,6 +148,7 @@ test('several events in one tick each produce a message, in order', () => {
 test('manual announcements are flagged, and the automatic path never emits them', () => {
     assert.equal(WELCOME_ANNOUNCEMENT.manual, true);
     assert.equal(MILESTONE_ANNOUNCEMENT.manual, true);
+    assert.equal(RIDE_TOTALS_ANNOUNCEMENT.manual, true);
     assert.ok(!LEVEL_UP_ANNOUNCEMENT.manual, 'a level-up is news the moment it happens');
 
     // Even if a caller passes one in as though it were a tracker event, it is skipped.
@@ -162,6 +167,27 @@ test('manualAnnouncementMessage composes welcome and milestone text', () => {
         {rides: 50, names: 'Carol', count: 1, others: 0}, get);
     assert.ok(milestone.includes('50'), milestone);
     assert.ok(milestone.includes('Carol'), milestone);
+});
+
+test('manualAnnouncementMessage composes the ride summary from the formatted totals', () => {
+    const vars = SAMPLE['ride-totals'];
+    const text = manualAnnouncementMessage('ride-totals', vars, settings());
+    assert.ok(!text.includes('{'), text);
+    for (const part of ['21 riders', '412.7 mi', '318 ride-ons', '96,240', '18,405',
+        '3 levels gained']) {
+        assert.ok(text.includes(part), `${part} missing from: ${text}`);
+    }
+    // The metric and duration placeholders are offered even though the default doesn't spend them.
+    assert.equal(manualAnnouncementMessage('ride-totals', vars,
+        settings({rideTotalsMessage: '{km} km in {elapsed}'})), '664.2 km in 42:10');
+});
+
+test('every manual announcement declares the settings note naming its button', () => {
+    // The settings window falls back to a generic line, but a leader should be told WHICH button
+    // sends it — there is more than one now.
+    for (const a of ANNOUNCEMENTS.filter(a => a.manual)) {
+        assert.ok(a.manualNote, `${a.key} has no manualNote`);
+    }
 });
 
 test('manualAnnouncementMessage honours the on/off switch, a blanked template, and bad keys', () => {

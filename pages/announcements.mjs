@@ -36,16 +36,19 @@
  *   vars(event)      event -> {name: value} used for the substitution
  *   manual           (optional) true when the leader SENDS this from a button rather than it firing
  *                    off a detected event — see below
+ *   manualNote       (optional) the "sent when you press …" hint the settings window shows for a
+ *                    manual announcement, naming the button; a generic line is used without it
  *   options          (optional) [{setting, label, description, defaultValue}] extra on/off switches
  *                    shown under this announcement. These tune HOW the underlying event is detected
  *                    rather than what is said, so the tracker — not this module — reads them.
  *
  * AUTOMATIC vs MANUAL. A level-up is news the moment it happens, so it is announced automatically as
- * the tracker spots it. Recognising new riders and ride milestones is a *social* act with a good
- * moment for it — after the late-join window closes, when the leader chooses — and it is far more
- * forgiving if a human glances at the list first. Those are `manual: true`: the wording, the on/off
- * switch and the settings UI work exactly the same, but `announcementMessages()` ignores them and the
- * control window's Riders panel composes them through `manualAnnouncementMessage()` on a button press.
+ * the tracker spots it. Recognising new riders and ride milestones, or reporting the group's totals,
+ * is a *social* act with a good moment for it — after the late-join window closes, at the top of a
+ * lap, when the leader chooses — and it is far more forgiving if a human glances at the numbers
+ * first. Those are `manual: true`: the wording, the on/off switch and the settings UI work exactly
+ * the same, but `announcementMessages()` ignores them and the control window composes them through
+ * `manualAnnouncementMessage()` on a button press.
  */
 
 /*
@@ -101,6 +104,8 @@ export const WELCOME_ANNOUNCEMENT = {
     templateSetting: 'welcomeMessage',
     defaultEnabled: true,
     manual: true,
+    manualNote: 'Sent when you press Welcome in the control window’s Riders panel, never ' +
+        'automatically.',
     defaultTemplate: '👋 Please give a warm welcome to our new riders: {names}! Great to have you ' +
         'with us!',
     placeholders: [
@@ -128,6 +133,8 @@ export const MILESTONE_ANNOUNCEMENT = {
     templateSetting: 'milestoneMessage',
     defaultEnabled: true,
     manual: true,
+    manualNote: 'Sent when you press a milestone button in the control window’s Riders panel, ' +
+        'never automatically.',
     defaultTemplate: '🎂 Celebrating {rides} rides with us: {names}! Thanks for riding with us! 🎂',
     placeholders: [
         {name: 'rides', description: 'the milestone reached (10, 50, …)'},
@@ -139,11 +146,54 @@ export const MILESTONE_ANNOUNCEMENT = {
 };
 
 
+/*
+ * Sent from the "Since event start" panel: what the whole group has done together so far. It reads
+ * off the same totals the panel shows (event-tracker.mjs `rideTotals`/`formatRideTotals`, which is
+ * where the number formatting lives), so the message can't drift from the tiles.
+ *
+ * Manual because there is no moment that is automatically the right one — the totals only mean
+ * something when the leader picks the point to report them (a halfway mark, the end of a lap, the
+ * cool-down), and a group summary sent on a timer would just be noise.
+ */
+export const RIDE_TOTALS_ANNOUNCEMENT = {
+    key: 'ride-totals',
+    name: 'Ride summary',
+    description: 'Sent when you press Send summary in the control window’s “Since event start” ' +
+        'panel, reporting the group’s combined totals for the ride so far.',
+    enabledSetting: 'announceRideTotals',
+    templateSetting: 'rideTotalsMessage',
+    defaultEnabled: true,
+    manual: true,
+    manualNote: 'Sent when you press Send summary in the control window’s “Since event start” ' +
+        'panel, never automatically.',
+    // Six numbers don't fit the default 90-character chunk, so this reads as two chat lines with the
+    // usual (i/n) markers — the reason to reach for {km} instead of {miles}, or to drop a value, if
+    // you want one. {km} and {elapsed} are offered as placeholders rather than spent in the default.
+    defaultTemplate: '📊 Ride so far: {riders} riders, {miles} mi, {rideons} ride-ons, ' +
+        '{strokes} pedal strokes, {calories} kcal, {levels} levels gained 💪',
+    placeholders: [
+        {name: 'riders', description: 'how many riders are counted'},
+        {name: 'elapsed', description: 'time since the event start (m:ss)'},
+        {name: 'miles', description: 'combined distance in miles'},
+        {name: 'km', description: 'combined distance in kilometres'},
+        {name: 'rideons', description: 'total ride-ons received'},
+        {name: 'strokes', description: 'total pedal strokes'},
+        {name: 'calories', description: 'total calories burnt'},
+        {name: 'levels', description: 'levels gained during the ride'},
+    ],
+    vars: ev => ({
+        riders: ev.riders, elapsed: ev.elapsed, miles: ev.miles, km: ev.km,
+        rideons: ev.rideons, strokes: ev.strokes, calories: ev.calories, levels: ev.levels,
+    }),
+};
+
+
 // Ordered registry — the settings window lists announcements in this order.
 export const ANNOUNCEMENTS = [
     LEVEL_UP_ANNOUNCEMENT,
     WELCOME_ANNOUNCEMENT,
     MILESTONE_ANNOUNCEMENT,
+    RIDE_TOTALS_ANNOUNCEMENT,
 ];
 
 const BY_KEY = new Map(ANNOUNCEMENTS.map(a => [a.key, a]));
