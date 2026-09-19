@@ -1110,16 +1110,27 @@ function updateReference(entries) {
 }
 
 let leaderPickerSig = '';
+let leaderPickerOpen = false;
+let leaderPickerPending = null;
 function updateLeaderPicker(entries) {
-    // Rebuild only when the roster changes, to avoid clobbering the user's open dropdown.
-    const sig = entries.map(e => e.athleteId).join(',');
+    if (leaderPickerOpen) {
+        // Never touch the DOM while the dropdown is (or might be) open — any rebuild,
+        // even a same-order one, can shift focus/scroll under the pointer mid-click.
+        // Stash the latest roster and apply it once the picker closes.
+        leaderPickerPending = entries;
+        return;
+    }
+    // Rebuild only when the roster (as a SET, order-independent) changes, so the
+    // nearby list's tick-to-tick reordering doesn't reshuffle the list.
+    const sig = entries.map(e => e.athleteId).sort().join(',');
     if (sig === leaderPickerSig) {
         return;
     }
     leaderPickerSig = sig;
     const cur = game.config.leaderId != null ? String(game.config.leaderId) : '';
     const opts = ['<option value="">(watched rider)</option>'];
-    for (const e of entries) {
+    const sorted = [...entries].sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
+    for (const e of sorted) {
         opts.push(`<option value="${e.athleteId}">${Common.sanitize(nameOf(e))}</option>`);
     }
     // Keep a configured-but-absent leader selectable so we don't silently lose the setting.
@@ -1426,6 +1437,19 @@ export async function main() {
     els.btnSkipJoke.addEventListener('click', nextJoke);
 
     // Ride-leader picker (managed manually; persisted into the same settings store).
+    // Freeze rebuilds for the whole time it's focused, since a <select>'s native open/closed
+    // state isn't observable — focus is the closest proxy, and it covers the open dropdown.
+    els.leaderPicker.addEventListener('focus', () => {
+        leaderPickerOpen = true;
+    });
+    els.leaderPicker.addEventListener('blur', () => {
+        leaderPickerOpen = false;
+        if (leaderPickerPending) {
+            const pending = leaderPickerPending;
+            leaderPickerPending = null;
+            updateLeaderPicker(pending);
+        }
+    });
     els.leaderPicker.addEventListener('change', () => {
         const v = els.leaderPicker.value;
         settings.set('leaderId', v ? Number(v) : null);
