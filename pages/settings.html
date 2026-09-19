@@ -139,11 +139,19 @@
             <input type="number" name="maxNamesPerMessage" min="0" max="60" step="1" value="8"/>
         </label>
         <div class="hint">0 names everyone, which on a busy week can run to several chat lines.</div>
+        <label class="checkbox">
+            <input type="checkbox" name="trackFreeRides"/> Track rider history outside a Zwift event
+        </label>
+        <div class="hint">Off by default: "who's ridden with us before" doesn't mean much for a solo
+            or free ride, so history sits idle until you're in a Zwift event — nothing is saved from
+            one free ride to the next. Turn this on to exercise the feature (e.g. for debugging)
+            without a real event.</div>
         <label>Ride name (used only outside a Zwift event)
             <input type="text" name="rideSeriesLabel" placeholder="My ride"/>
         </label>
         <div class="hint">Inside an event the ride is identified automatically from Zwift's own event
-            series, so history follows the event rather than you.</div>
+            series, so history follows the event rather than you. Only used when "Track rider history
+            outside a Zwift event" above is on.</div>
         <div class="btn-row">
             <button type="button" class="rlg-btn small" id="btnExportHistory">Export history</button>
             <button type="button" class="rlg-btn small" id="btnImportHistory">Import history…</button>

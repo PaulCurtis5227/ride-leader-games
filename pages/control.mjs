@@ -67,6 +67,9 @@ const SETTING_DEFAULTS = {
     presenceMinutes: 5,        // how long a rider must be with us to count as having ridden
     maxNamesPerMessage: 8,     // names in one bucket message before "…and N others"
     rideSeriesLabel: '',       // manual series name, used when no Zwift event is detected
+    // "Who's ridden with us before" is meaningless for a solo/free ride, so history stays off
+    // outside a recognised Zwift event unless explicitly enabled (e.g. to debug the feature).
+    trackFreeRides: false,
     // One on/off flag + one message template per rider-event announcement, straight from the
     // registry — adding an announcement never needs an edit here (see announcements.mjs).
     ...announcementDefaults(),
@@ -289,10 +292,18 @@ async function maintainSeries(entries) {
         const info = await resolveEventInfo(entries);
         eventInfo = info;
         lastEventResolve = clockNow();
-        // Not in an event (yet). Keep looking for a while before committing anyone to the fallback
-        // "free ride" ledger — an event lookup that needs a few seconds is normal.
-        if (!info && !history.seriesKey && (clockNow() - firstResolveAt) < FREE_RIDE_GRACE_MS) {
-            return;
+        if (!info) {
+            // Outside a Zwift event, rider history doesn't mean anything (there's no "regulars" of a
+            // free ride) — so unless the leader has turned it on for debugging, leave the ledger
+            // exactly where it is rather than starting/continuing a free-ride series.
+            if (!get('trackFreeRides')) {
+                return;
+            }
+            // Not in an event (yet). Keep looking for a while before committing anyone to the
+            // fallback "free ride" ledger — an event lookup that needs a few seconds is normal.
+            if (!history.seriesKey && (clockNow() - firstResolveAt) < FREE_RIDE_GRACE_MS) {
+                return;
+            }
         }
         const rawKey = keyForEvent({
             seriesId: info && info.seriesId,
@@ -486,9 +497,14 @@ function renderRiders() {
     const late = eventInfo && eventInfo.lateJoinInMinutes;
     const elapsedMin = tracker.startTime != null ? Math.floor(tracker.elapsedMs(now) / 60_000) : 0;
 
+    // Once resolution has had its grace period, a null eventInfo with history still off free-ride
+    // tracking means we've concluded this is a free ride and are deliberately not tracking it.
+    const freeRidePaused = !history.seriesKey && !eventInfo && !get('trackFreeRides') &&
+        firstResolveAt && (now - firstResolveAt) >= FREE_RIDE_GRACE_MS;
+
     const bits = [];
     if (!history.seriesKey) {
-        bits.push('waiting for riders…');
+        bits.push(freeRidePaused ? 'no event — history off (Settings)' : 'waiting for riders…');
     } else {
         bits.push(p.welcome.length ? `${p.welcome.length} to welcome` : 'nobody to welcome');
         if (p.milestones.length) {
@@ -525,6 +541,7 @@ function renderRiders() {
     const html = rows.length ? rows.join('') :
         `<div class="riders-empty">${history.seriesKey ?
             'Nothing pending — everyone here has been welcomed.' :
+            freeRidePaused ? 'Not tracked outside a Zwift event — enable in Settings → Rider history.' :
             'No ride identified yet.'}</div>`;
     // This runs on the 1s ticker, so only touch the DOM when the buckets actually change: replacing
     // the markup under the leader's cursor can swallow a click that lands mid-rebuild, and it drops
