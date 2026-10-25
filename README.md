@@ -71,7 +71,8 @@ One window becomes available:
 - **Ride Leader Games — Control** — the leader's panel: game picker + round **Duration**, live
   leaderboard, a **Since event start** metric viewer and ride totals, a **Riders** panel for welcoming
   newcomers and marking ride milestones, Start/Stop/Reset, chat review queue, a bicycle-joke sender,
-  and diagnostics. A **settings gear (⚙)** in the title bar opens a separate Settings window for the
+  and diagnostics. The title bar stays hidden until you **right-click** the window (right-click again
+  to hide it); while it's shown you can drag the window, and its **settings gear (⚙)** opens a separate Settings window for the
   rest of the configuration (send mode, prefixes, instructions, announce options, rider history,
   font scale, etc.).
 
