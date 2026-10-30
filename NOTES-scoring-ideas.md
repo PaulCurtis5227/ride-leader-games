@@ -7,8 +7,9 @@ thinks they may make good ride leader games. **Nothing is built here yet. Ask th
 ## The three scores (1 point = 1 kJ)
 
 - **Workhorse: "I did my share."** Pulls on the front of your group: 10 s+ first in the group, with at least half of
-  the group still behind you at the end (no points for blowing it apart). Points = the draft the puller gave up
-  (their usual draft sitting in, minus their draft on the front) × the riders sheltered behind them.
+  the group still behind you at the end (no points for blowing it apart). Points = the draft the rest of the group
+  got (summed, kJ) while the puller was on the front. It must score on any bike: on a TT bike the puller gets no
+  draft of their own, but still drags the group around (the user, on the Factor Hanzo).
 - **Wheelsucker: "I did as little work as possible."** The draft Zwift gave you while in a group (`state.draft`, in
   watts), minus what a bad spot cost and minus watts lost pushing into wheels. Skip riders with no draft at all
   (TT bikes in some events read 0 W of draft the whole ride).
